@@ -10,6 +10,9 @@
 !.yarn/releases
 !.yarn/versions
 
+# verification results
+FINAL_VERIFICATION.md
+
 # testing
 /coverage
 

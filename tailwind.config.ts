@@ -12,6 +12,7 @@ const config: Config = {
       colors: {
         brand: {
           DEFAULT: "var(--brand-yellow)",
+          foreground: "var(--brand-foreground)",
           dim: "rgba(232,255,71,0.08)",
           border: "rgba(232,255,71,0.2)",
         },

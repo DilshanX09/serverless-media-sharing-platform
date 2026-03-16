@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import NextImage from "next/image";
 import {
   X,
   ImagePlus,
   Video,
-  Image,
+  Image as ImageIcon,
   ArrowLeft,
   ArrowRight,
-  MapPin,
   Tag,
   FileText,
   Loader2,
@@ -20,6 +20,7 @@ import {
 interface CreatePostModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialType?: "post" | "reel";
 }
 
 type Step = "select" | "preview" | "details" | "publishing" | "done";
@@ -40,6 +41,7 @@ function formatBytes(bytes: number): string {
 export default function CreatePostModal({
   isOpen,
   onClose,
+  initialType = "post",
 }: CreatePostModalProps) {
   const [step, setStep] = useState<Step>("select");
   const [media, setMedia] = useState<MediaFile | null>(null);
@@ -50,6 +52,16 @@ export default function CreatePostModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  const handleClose = useCallback(() => {
+    if (media?.url) URL.revokeObjectURL(media.url);
+    setMedia(null);
+    setCaption("");
+    setTags("");
+    setStep("select");
+    setIsDragging(false);
+    onClose();
+  }, [media?.url, onClose]);
+
   // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -57,7 +69,7 @@ export default function CreatePostModal({
     };
     if (isOpen) window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen]);
+  }, [isOpen, handleClose]);
 
   // Revoke object URLs on unmount / media change
   useEffect(() => {
@@ -67,17 +79,7 @@ export default function CreatePostModal({
   }, [media]);
 
 
-  const handleClose = () => {
-    if (media?.url) URL.revokeObjectURL(media.url);
-    setMedia(null);
-    setCaption("");
-    setTags("");
-    setStep("select");
-    setIsDragging(false);
-    onClose();
-  };
-
-  const processFile = (file: File) => {
+  const processFile = useCallback((file: File) => {
     const isImage = file.type.startsWith("image/");
     const isVideo = file.type.startsWith("video/");
     if (!isImage && !isVideo) {
@@ -94,7 +96,7 @@ export default function CreatePostModal({
       sizeLabel: formatBytes(file.size),
     });
     setStep("preview");
-  };
+  }, [media?.url]);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -107,7 +109,7 @@ export default function CreatePostModal({
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) processFile(file);
-  }, []);
+  }, [processFile]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -124,6 +126,9 @@ export default function CreatePostModal({
 
   const acceptTypes =
     "image/jpeg,image/png,image/gif,image/webp,image/avif,video/mp4,video/webm,video/quicktime,video/mov";
+
+  const primaryButtonClass =
+    "w-full flex items-center justify-center gap-2 bg-ink hover:opacity-90 text-base text-[15px] font-bold py-3 rounded-xl transition-all";
 
   if (!isOpen) return null;
 
@@ -147,7 +152,10 @@ export default function CreatePostModal({
         {/* ───── STEP: SELECT ───── */}
         {step === "select" && (
           <>
-            <ModalHeader title="Create new post" onClose={handleClose} />
+            <ModalHeader
+              title={initialType === "reel" ? "Create new reel" : "Create new post"}
+              onClose={handleClose}
+            />
             <div className="p-6">
               {/* Drop zone */}
               <div
@@ -165,7 +173,7 @@ export default function CreatePostModal({
                 {/* Icon cluster */}
                 <div className="flex items-end justify-center gap-3">
                   <div className="w-14 h-14 rounded-2xl bg-surface-3 border border-border-soft flex items-center justify-center rotate-[-6deg] shadow-xl">
-                    <Image size={26} className="text-ink-3" />
+                    <ImageIcon size={26} className="text-ink-3" />
                   </div>
                   <div className="w-16 h-16 rounded-2xl bg-brand/10 border border-brand/20 flex items-center justify-center z-10 shadow-2xl">
                     <Upload size={28} className="text-brand" />
@@ -176,13 +184,13 @@ export default function CreatePostModal({
                 </div>
 
                 <div className="text-center">
-                  <p className="text-[17px] font-bold text-ink mb-1.5">
-                    Drop your media here
-                  </p>
-                  <p className="text-[14px] text-ink-3 mb-5 leading-relaxed">
-                    Drag & drop or click to choose a<br />
-                    single image or video
-                  </p>
+                    <p className="text-[17px] font-bold text-ink mb-1.5">
+                      Drop your media here
+                    </p>
+                    <p className="text-[14px] text-ink-3 mb-5 leading-relaxed">
+                      Drag & drop or click to choose a<br />
+                      single image or video
+                    </p>
                   <div className="flex items-center justify-center gap-3">
                     <button
                       type="button"
@@ -190,7 +198,7 @@ export default function CreatePostModal({
                         e.stopPropagation();
                         fileInputRef.current?.click();
                       }}
-                      className="flex items-center gap-2 bg-brand hover:bg-brand hover:brightness-95 text-[#111] text-[14px] font-bold px-5 py-2.5 rounded-xl transition-all shadow-lg shadow-brand/10"
+                      className="flex items-center gap-2 bg-ink hover:opacity-90 text-base text-[14px] font-bold px-5 py-2.5 rounded-xl transition-all"
                     >
                       <ImagePlus size={17} strokeWidth={2.5} />
                       Choose file
@@ -201,10 +209,10 @@ export default function CreatePostModal({
                 {/* Format hints */}
                 <div className="flex items-center gap-4 mt-2">
                   <FormatBadge
-                    icon={<Image size={12} />}
+                    icon={<ImageIcon size={12} />}
                     label="JPG, PNG, GIF, WEBP"
                   />
-                  <span className="w-px h-4 bg-white/[0.08]" />
+                  <span className="w-px h-4 bg-border-soft" />
                   <FormatBadge
                     icon={<Video size={12} />}
                     label="MP4, MOV, WEBM"
@@ -250,25 +258,30 @@ export default function CreatePostModal({
               {/* Media Preview */}
               <div className="rounded-2xl overflow-hidden bg-base border border-border-soft mb-4 relative">
                 {media.type === "image" ? (
-                  <img
-                    src={media.url}
-                    alt="Preview"
-                    className="w-full max-h-[420px] object-contain"
-                    style={{ background: "#0d0d0d" }}
-                  />
+                  <div className="relative w-full max-h-[420px] aspect-square">
+                    <NextImage
+                      src={media.url}
+                      alt="Preview"
+                      fill
+                      sizes="540px"
+                      unoptimized
+                      className="object-contain"
+                      style={{ background: "var(--bg-base)" }}
+                    />
+                  </div>
                 ) : (
                   <video
                     ref={videoRef}
                     src={media.url}
                     controls
                     className="w-full max-h-[420px]"
-                    style={{ background: "#0d0d0d" }}
+                    style={{ background: "var(--bg-base)" }}
                   />
                 )}
                 {/* Type badge */}
                 <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/70 backdrop-blur-sm text-white text-[12px] font-semibold px-2.5 py-1 rounded-lg border border-border-mid">
                   {media.type === "image" ? (
-                    <Image size={13} />
+                    <ImageIcon size={13} />
                   ) : (
                     <Video size={13} />
                   )}
@@ -278,9 +291,9 @@ export default function CreatePostModal({
 
               {/* File info */}
               <div className="flex items-center gap-3 p-3.5 rounded-xl bg-base border border-border-soft mb-5">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#1e1e1e] border border-border-soft flex-shrink-0">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-surface-3 border border-border-soft flex-shrink-0">
                   {media.type === "image" ? (
-                    <Image size={18} className="text-brand" />
+                    <ImageIcon size={18} className="text-brand" />
                   ) : (
                     <Video size={18} className="text-brand" />
                   )}
@@ -310,7 +323,7 @@ export default function CreatePostModal({
               <button
                 type="button"
                 onClick={() => setStep("details")}
-                className="w-full flex items-center justify-center gap-2 bg-brand hover:bg-brand hover:brightness-95 text-[#111] text-[15px] font-bold py-3 rounded-xl transition-all shadow-lg shadow-brand/10"
+                className={primaryButtonClass}
               >
                 Add Details
                 <ArrowRight size={18} strokeWidth={2.5} />
@@ -341,14 +354,18 @@ export default function CreatePostModal({
             >
               {/* Left: Preview thumbnail (desktop) */}
               <div className="hidden md:flex flex-col w-[320px] flex-shrink-0 bg-base border-r border-border-soft p-5 gap-4">
-                <div className="rounded-2xl overflow-hidden border border-border-soft bg-[#0d0d0d]">
+                <div className="rounded-2xl overflow-hidden border border-border-soft bg-base">
                   {media.type === "image" ? (
-                    <img
-                      src={media.url}
-                      alt="Preview"
-                      className="w-full object-cover"
-                      style={{ maxHeight: "320px" }}
-                    />
+                    <div className="relative w-full" style={{ maxHeight: "320px", aspectRatio: "1 / 1" }}>
+                      <NextImage
+                        src={media.url}
+                        alt="Preview"
+                        fill
+                        sizes="320px"
+                        unoptimized
+                        className="object-cover"
+                      />
+                    </div>
                   ) : (
                     <video
                       src={media.url}
@@ -364,7 +381,7 @@ export default function CreatePostModal({
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-surface border border-border-soft">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-surface-3">
                     {media.type === "image" ? (
-                      <Image size={15} className="text-brand" />
+                      <ImageIcon size={15} className="text-brand" />
                     ) : (
                       <Video size={15} className="text-brand" />
                     )}
@@ -440,9 +457,9 @@ export default function CreatePostModal({
                   <button
                     type="button"
                     onClick={handlePublish}
-                    className="w-full flex items-center justify-center gap-2 bg-brand hover:bg-brand hover:brightness-95 text-[#111] text-[15px] font-bold py-3 rounded-xl transition-all shadow-lg shadow-brand/10"
+                    className={primaryButtonClass}
                   >
-                    Share post
+                    {initialType === "reel" ? "Share reel" : "Share post"}
                     <ArrowRight size={18} strokeWidth={2.5} />
                   </button>
                 </div>
@@ -502,7 +519,7 @@ export default function CreatePostModal({
             </div>
             <div>
               <p className="text-[20px] font-bold text-ink mb-2">
-                Post shared! 🎉
+                {initialType === "reel" ? "Reel shared! 🎉" : "Post shared! 🎉"}
               </p>
               <p className="text-[14px] text-ink-3 leading-relaxed">
                 Your {media?.type === "video" ? "video" : "photo"} has been
@@ -514,7 +531,7 @@ export default function CreatePostModal({
             <button
               type="button"
               onClick={handleClose}
-              className="mt-2 px-8 py-2.5 bg-brand hover:bg-brand hover:brightness-95 text-[#111] text-[14px] font-bold rounded-xl transition-all"
+              className="mt-2 px-8 py-2.5 bg-ink hover:opacity-90 text-base text-[14px] font-bold rounded-xl transition-all"
             >
               Done
             </button>
