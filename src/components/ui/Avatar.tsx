@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { User } from "@/types";
 
 interface AvatarProps {
@@ -25,25 +26,51 @@ export default function Avatar({
   ring = false,
   className = "",
 }: AvatarProps) {
+  const classes = [
+    "relative flex-shrink-0 rounded-full flex items-center justify-content-center",
+    "bg-gradient-to-br",
+    user.avatarGradient,
+    sizeMap[size],
+    ring ? "ring-2 ring-border-mid ring-offset-1 ring-offset-base" : "",
+    onClick ? "cursor-pointer hover:scale-105 transition-transform duration-150" : "cursor-default",
+    className,
+  ].join(" ");
+
+  const content = user.avatarUrl ? (
+    <Image
+      src={user.avatarUrl}
+      alt={user.displayName}
+      fill
+      sizes="56px"
+      className="object-cover rounded-full"
+    />
+  ) : (
+    <span className="font-bold text-white leading-none select-none">
+      {user.avatarInitial}
+    </span>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={classes}
+        aria-label={user.displayName}
+        style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+      >
+        {content}
+      </button>
+    );
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        "relative flex-shrink-0 rounded-full flex items-center justify-content-center",
-        "bg-gradient-to-br",
-        user.avatarGradient,
-        sizeMap[size],
-        ring ? "ring-2 ring-[#2a2a2a] ring-offset-1 ring-offset-[#111]" : "",
-        onClick ? "cursor-pointer hover:scale-105 transition-transform duration-150" : "cursor-default",
-        className,
-      ].join(" ")}
-      aria-label={user.displayName}
+    <div
+      className={classes}
       style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+      aria-hidden="true"
     >
-      <span className="font-bold text-white leading-none select-none">
-        {user.avatarInitial}
-      </span>
-    </button>
+      {content}
+    </div>
   );
 }

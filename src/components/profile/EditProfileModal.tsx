@@ -1,25 +1,29 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import NextImage from "next/image";
 import { X, Camera, Loader2, CheckCircle } from "lucide-react";
 import type { User } from "@/types";
-import Cropper from "react-easy-crop";
+import Cropper, { type Area } from "react-easy-crop";
 import { getCroppedImg } from "@/lib/cropImage";
 
 interface EditProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User;
+  onSave: (nextUser: Partial<User>) => void;
 }
 
 export default function EditProfileModal({
   isOpen,
   onClose,
   user,
+  onSave,
 }: EditProfileModalProps) {
   const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl || "");
   const [fullName, setFullName] = useState(user.displayName);
   const [username, setUsername] = useState(user.username);
+  const [bio, setBio] = useState(user.bio ?? "");
   const [mobileNumber, setMobileNumber] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "success">("idle");
@@ -29,7 +33,12 @@ export default function EditProfileModal({
   const [originalImageUrl, setOriginalImageUrl] = useState("");
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+
+  const handleClose = useCallback(() => {
+    setStatus("idle");
+    onClose();
+  }, [onClose]);
 
   // Close on Escape
   useEffect(() => {
@@ -38,12 +47,15 @@ export default function EditProfileModal({
     };
     if (isOpen) window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, status]);
+  }, [isOpen, status, handleClose]);
 
-  const handleClose = () => {
-    setStatus("idle");
-    onClose();
-  };
+  useEffect(() => {
+    if (!isOpen) return;
+    setAvatarUrl(user.avatarUrl || "");
+    setFullName(user.displayName);
+    setUsername(user.username);
+    setBio(user.bio ?? "");
+  }, [isOpen, user]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -58,8 +70,8 @@ export default function EditProfileModal({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const onCropComplete = useCallback((croppedArea: any, croppedAreaPixels: any) => {
-    setCroppedAreaPixels(croppedAreaPixels);
+  const onCropComplete = useCallback((_: Area, nextCroppedAreaPixels: Area) => {
+    setCroppedAreaPixels(nextCroppedAreaPixels);
   }, []);
 
   const handleCropSave = async () => {
@@ -82,6 +94,13 @@ export default function EditProfileModal({
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("saving");
+    onSave({
+      displayName: fullName.trim(),
+      username: username.trim(),
+      bio: bio.trim(),
+      avatarUrl: avatarUrl || undefined,
+      avatarInitial: (fullName.trim()[0] || username.trim()[0] || "U").toUpperCase(),
+    });
     // Simulate save
     setTimeout(() => {
       setStatus("success");
@@ -169,7 +188,7 @@ export default function EditProfileModal({
                 <button
                   type="button"
                   onClick={handleCropSave}
-                  className="flex-1 bg-brand hover:brightness-95 text-[#000] font-bold py-3 rounded-xl transition-all"
+                  className="flex-1 bg-ink hover:opacity-90 text-base font-bold py-3 rounded-xl transition-all"
                 >
                   Done
                 </button>
@@ -181,9 +200,15 @@ export default function EditProfileModal({
             {/* Avatar Upload */}
             <div className="flex flex-col items-center justify-center gap-3">
               <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-surface-3 bg-surface-2">
+                <div className="relative w-24 h-24 rounded-full overflow-hidden border-2 border-surface-3 bg-surface-2">
                   {avatarUrl ? (
-                    <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    <NextImage
+                      src={avatarUrl}
+                      alt="Avatar"
+                      fill
+                      sizes="96px"
+                      className="object-cover"
+                    />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-ink-3 text-2xl font-bold uppercase pb-1">
                       {username[0]}
@@ -238,6 +263,22 @@ export default function EditProfileModal({
               </div>
 
               <div>
+                <div className="flex items-center justify-between mb-1.5 ml-1 mr-1">
+                  <label className="text-[12px] font-semibold text-ink-3 uppercase tracking-wide">
+                    Bio
+                  </label>
+                  <span className="text-[11px] text-ink-3">{bio.length}/160</span>
+                </div>
+                <textarea
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value.slice(0, 160))}
+                  placeholder="Write a short bio..."
+                  rows={3}
+                  className="w-full bg-base border border-border-mid rounded-xl px-4 py-3 text-[14px] text-ink placeholder-ink-3 outline-none focus:border-brand/40 focus:bg-surface transition-all resize-none"
+                />
+              </div>
+
+              <div>
                 <label className="block text-[12px] font-semibold text-ink-3 uppercase tracking-wide mb-1.5 ml-1">
                   Mobile Number
                 </label>
@@ -269,7 +310,7 @@ export default function EditProfileModal({
             <button
               type="submit"
               disabled={status === "saving" || !fullName || !username}
-              className="w-full bg-brand hover:bg-brand hover:brightness-95 disabled:bg-brand/50 disabled:cursor-not-allowed text-[#000] text-[15px] font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-brand/10 mt-6 flex items-center justify-center gap-2"
+              className="w-full bg-ink hover:opacity-90 disabled:bg-surface-3 disabled:text-ink-3 disabled:cursor-not-allowed text-base text-[15px] font-bold py-3.5 rounded-xl transition-all mt-6 flex items-center justify-center gap-2"
             >
               {status === "saving" ? (
                 <>

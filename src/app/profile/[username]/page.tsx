@@ -1,22 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter, useParams } from "next/navigation";
 import {
   Grid3X3,
   Bookmark,
   Heart,
+  Image as ImageIcon,
   UserPlus,
   UserCheck,
   MessageCircle,
   BadgeCheck,
   ArrowLeft,
   Settings,
-  MoreHorizontal,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import EditProfileModal from "@/components/profile/EditProfileModal";
+import PostModal from "@/components/post/PostModal";
 import { mockPosts, currentUser, suggestedUsers } from "@/lib/mockData";
+import type { Post, User } from "@/types";
 
 // Build profile lookup from all available users
 const buildProfileData = (username: string) => {
@@ -60,7 +63,7 @@ export default function ProfilePage() {
       username: rawUsername.replace(/^@/, ""),
       displayName: rawUsername.replace(/^@/, ""),
       avatarInitial: rawUsername.replace(/^@/, "")[0]?.toUpperCase() ?? "U",
-      avatarGradient: "from-violet-500 to-purple-700",
+      avatarGradient: "from-zinc-600 to-zinc-800",
       isVerified: false,
       followers: 0,
       following: 0,
@@ -73,12 +76,18 @@ export default function ProfilePage() {
 
   const { user, posts, isOwn } = profile;
 
+  const [editableUser, setEditableUser] = useState<User>(user);
   const [following, setFollowing] = useState(false);
   const [activeTab, setActiveTab] = useState<"posts" | "saved">("posts");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [activePost, setActivePost] = useState<Post | null>(null);
 
-  const displayFollowers = (user.followers ?? 0) + (following && !isOwn ? 1 : 0);
-  const displayFollowing = user.following ?? 0;
+  useEffect(() => {
+    setEditableUser(user);
+  }, [user]);
+
+  const displayFollowers = (editableUser.followers ?? 0) + (following && !isOwn ? 1 : 0);
+  const displayFollowing = editableUser.following ?? 0;
 
   return (
     <>
@@ -97,33 +106,43 @@ export default function ProfilePage() {
           </button>
 
           {/* Profile Header */}
-          <div className="bg-surface border border-border-soft rounded-3xl p-6 sm:p-8 mb-6">
+          <div className="p-2 sm:p-3 mb-6 border-b border-border-soft">
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
 
               {/* Avatar */}
               <div className="flex-shrink-0">
                 <div
-                  className={[
-                    "w-24 h-24 sm:w-28 sm:h-28 rounded-full flex items-center justify-center text-3xl sm:text-4xl font-bold text-white bg-gradient-to-br",
-                    user.avatarGradient,
-                  ].join(" ")}
-                  style={{
-                    boxShadow: "0 0 0 4px #1a1a1a, 0 0 0 6px rgba(232,255,71,0.25)",
-                  }}
-                >
-                  {user.avatarInitial}
+                    className={[
+                      "relative w-24 h-24 sm:w-28 sm:h-28 rounded-full flex items-center justify-center text-3xl sm:text-4xl font-bold text-white bg-gradient-to-br",
+                      editableUser.avatarGradient,
+                    ].join(" ")}
+                    style={{
+                      boxShadow: "0 0 0 2px var(--bg-base), 0 0 0 4px var(--border-soft)",
+                    }}
+                  >
+                    {editableUser.avatarUrl ? (
+                      <Image
+                        src={editableUser.avatarUrl}
+                        alt={editableUser.displayName}
+                        fill
+                        sizes="112px"
+                        className="object-cover rounded-full"
+                      />
+                    ) : (
+                      editableUser.avatarInitial
+                    )}
+                  </div>
                 </div>
-              </div>
 
               {/* Info */}
               <div className="flex-1 min-w-0 text-center sm:text-left">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-3">
                   <div className="flex items-center justify-center sm:justify-start gap-2">
                     <h1 className="text-[22px] sm:text-[24px] font-bold text-ink leading-tight">
-                      {user.username}
+                      {editableUser.username}
                     </h1>
-                    {user.isVerified && (
-                      <BadgeCheck size={22} className="text-sky-400 fill-sky-500 stroke-[#1a1a1a]" />
+                    {editableUser.isVerified && (
+                      <BadgeCheck size={22} className="text-ink-2 fill-ink-3 stroke-base" />
                     )}
                   </div>
                   <div className="flex items-center justify-center sm:justify-start gap-2">
@@ -132,16 +151,10 @@ export default function ProfilePage() {
                         <button
                           type="button"
                           onClick={() => setIsEditModalOpen(true)}
-                          className="flex items-center gap-1.5 text-[14px] font-semibold bg-surface-3 border border-border-mid text-ink px-4 py-1.5 rounded-xl hover:bg-surface-3 transition-all"
+                          className="w-9 h-9 rounded-xl bg-ink text-base flex items-center justify-center hover:opacity-90 transition-opacity"
+                          title="Edit profile"
                         >
-                          <Settings size={15} />
-                          Edit profile
-                        </button>
-                        <button
-                          type="button"
-                          className="w-8 h-8 flex items-center justify-center rounded-xl text-ink-3 hover:bg-surface-3 hover:text-ink transition-all border border-border-soft"
-                        >
-                          <MoreHorizontal size={18} />
+                          <Settings size={16} />
                         </button>
                       </>
                     ) : (
@@ -152,8 +165,8 @@ export default function ProfilePage() {
                           className={[
                             "flex items-center gap-1.5 text-[14px] font-semibold px-5 py-1.5 rounded-xl transition-all",
                             following
-                              ? "bg-surface-3 border border-border-mid text-ink hover:bg-surface-3"
-                              : "bg-brand hover:bg-brand hover:brightness-95 text-[#111]",
+                              ? "bg-surface-2 border border-border-mid text-ink hover:bg-surface-3"
+                              : "bg-ink hover:opacity-90 text-base",
                           ].join(" ")}
                         >
                           {following ? <UserCheck size={15} /> : <UserPlus size={15} />}
@@ -161,16 +174,10 @@ export default function ProfilePage() {
                         </button>
                         <button
                           type="button"
-                          className="flex items-center gap-1.5 text-[14px] font-semibold bg-surface-3 border border-border-mid text-ink px-4 py-1.5 rounded-xl hover:bg-surface-3 transition-all"
+                          className="flex items-center gap-1.5 text-[14px] font-semibold bg-surface-2 border border-border-mid text-ink px-4 py-1.5 rounded-xl hover:bg-surface-3 transition-all"
                         >
                           <MessageCircle size={15} />
                           Message
-                        </button>
-                        <button
-                          type="button"
-                          className="w-8 h-8 flex items-center justify-center rounded-xl text-ink-3 hover:bg-surface-3 hover:text-ink transition-all border border-border-soft"
-                        >
-                          <MoreHorizontal size={18} />
                         </button>
                       </>
                     )}
@@ -180,7 +187,7 @@ export default function ProfilePage() {
                 {/* Stats Row */}
                 <div className="flex items-center justify-center sm:justify-start gap-6 mb-4">
                   <div className="text-center sm:text-left cursor-pointer hover:opacity-80 transition-opacity">
-                    <p className="text-[18px] font-bold text-ink leading-tight">{user.posts ?? posts.length}</p>
+                    <p className="text-[18px] font-bold text-ink leading-tight">{editableUser.posts ?? posts.length}</p>
                     <p className="text-[13px] text-ink-3">posts</p>
                   </div>
                   <div className="text-center sm:text-left cursor-pointer hover:opacity-80 transition-opacity">
@@ -198,11 +205,11 @@ export default function ProfilePage() {
                 </div>
 
                 {/* Display name & bio */}
-                <p className="text-[15px] font-semibold text-ink">{user.displayName}</p>
-                {user.bio && (
-                  <p className="text-[14px] text-ink-3 mt-1 leading-relaxed">{user.bio}</p>
+                <p className="text-[15px] font-semibold text-ink">{editableUser.displayName}</p>
+                {editableUser.bio && (
+                  <p className="text-[14px] text-ink-3 mt-1 leading-relaxed">{editableUser.bio}</p>
                 )}
-                {!user.bio && (
+                {!editableUser.bio && (
                   <p className="text-[14px] text-ink-3 mt-1 italic">
                     {isOwn ? "Add a bio to tell people about yourself." : "No bio yet."}
                   </p>
@@ -231,7 +238,7 @@ export default function ProfilePage() {
               onClick={() => setActiveTab("saved")}
               className={[
                 "flex items-center gap-2 px-5 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all",
-                activeTab === "saved"
+                         activeTab === "saved"
                   ? "border-brand text-brand"
                   : "border-transparent text-ink-3 hover:text-ink-3",
               ].join(" ")}
@@ -249,11 +256,26 @@ export default function ProfilePage() {
                   {posts.map((post) => (
                     <div
                       key={post.id}
-                      className="aspect-square bg-surface rounded-xl overflow-hidden relative cursor-pointer group border border-border-soft hover:border-border-mid transition-colors"
+                      className="aspect-square bg-surface-2 rounded-xl overflow-hidden relative cursor-pointer group transition-colors"
+                      onClick={() => setActivePost(post)}
                     >
-                      <div className="w-full h-full flex items-center justify-center text-5xl group-hover:scale-110 transition-transform duration-300">
-                        {post.mediaEmoji}
-                      </div>
+                      {post.mediaType === "image" ? (
+                        <Image
+                          src={post.mediaUrl}
+                          alt={post.mediaLabel}
+                          fill
+                          sizes="(max-width: 640px) 50vw, 280px"
+                          className="object-cover group-hover:scale-110 transition-transform duration-300"
+                        />
+                      ) : (
+                        <video
+                          src={post.mediaUrl}
+                          poster={post.thumbnailUrl}
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                          muted
+                          playsInline
+                        />
+                      )}
                       {/* Hover overlay */}
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors rounded-xl flex items-center justify-center gap-4 opacity-0 group-hover:opacity-100">
                         <div className="flex items-center gap-1.5 text-white text-[14px] font-bold">
@@ -269,9 +291,9 @@ export default function ProfilePage() {
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <div className="w-16 h-16 rounded-2xl bg-surface flex items-center justify-center mb-4 text-3xl">
-                    📷
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center mb-4">
+                    <ImageIcon size={28} className="text-ink-3" />
                   </div>
                   <p className="text-[16px] font-semibold text-ink mb-1">No posts yet</p>
                   <p className="text-[14px] text-ink-3">
@@ -284,8 +306,8 @@ export default function ProfilePage() {
 
           {activeTab === "saved" && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-surface flex items-center justify-center mb-4 text-3xl">
-                🔖
+              <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center mb-4">
+                <Bookmark size={28} className="text-ink-3" />
               </div>
               <p className="text-[16px] font-semibold text-ink mb-1">
                 {isOwn ? "No saved posts yet" : "Private collection"}
@@ -303,8 +325,15 @@ export default function ProfilePage() {
       <EditProfileModal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
-        user={user}
+        user={editableUser}
+        onSave={(nextUser) => {
+          setEditableUser((prev) => ({
+            ...prev,
+            ...nextUser,
+          }));
+        }}
       />
+      <PostModal post={activePost} onClose={() => setActivePost(null)} />
     </>
   );
 }

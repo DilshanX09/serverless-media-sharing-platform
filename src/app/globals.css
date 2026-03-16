@@ -2,10 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Geist+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap");
 
 :root {
-  --font-inter: "Inter", sans-serif;
+  --font-inter: "Manrope", sans-serif;
   --font-geist-mono: "Geist Mono", monospace;
   
   /* Light Mode Colors (default) */
@@ -19,7 +19,8 @@
   --border-soft: rgba(0, 0, 0, 0.06);
   --border-mid: rgba(0, 0, 0, 0.12);
   --border-strong: rgba(0, 0, 0, 0.18);
-  --brand-yellow: #d1e815; /* Darker yellow for visibility on light bg */
+  --brand-yellow: #111111;
+  --brand-foreground: #ffffff;
 }
 
 .dark {
@@ -34,7 +35,8 @@
   --border-soft: rgba(255, 255, 255, 0.07);
   --border-mid: rgba(255, 255, 255, 0.12);
   --border-strong: rgba(255, 255, 255, 0.18);
-  --brand-yellow: #e8ff47;
+  --brand-yellow: #ffffff;
+  --brand-foreground: #111111;
 }
 
 * {
@@ -75,6 +77,14 @@ html {
 
 .animate-fade-up {
   animation: fade-up 0.4s ease both;
+}
+
+.comment-emoji {
+  width: 1.05em;
+  height: 1.05em;
+  margin: 0 0.03em;
+  vertical-align: -0.18em;
+  display: inline-block;
 }
 
 @keyframes modalPop {

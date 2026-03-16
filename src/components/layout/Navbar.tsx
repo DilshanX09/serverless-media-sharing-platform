@@ -1,40 +1,91 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Search,
-  PlusSquare,
-  Bell,
-  MessageCircle,
+  Plus,
+  ImagePlus,
+  Video,
   Moon,
   Sun,
+  X,
 } from "lucide-react";
-import { currentUser } from "@/lib/mockData";
+import { currentUser, mockPosts, suggestedUsers } from "@/lib/mockData";
 import Avatar from "@/components/ui/Avatar";
 import CreatePostModal from "@/components/post/CreatePostModal";
 import { useTheme } from "next-themes";
-import { useEffect } from "react";
 
 interface NavbarProps {
   onAddPost?: () => void;
-  onLoginClick?: () => void;
 }
 
-export default function Navbar({ onAddPost, onLoginClick }: NavbarProps) {
-  const [notifSeen, setNotifSeen] = useState(false);
+export default function Navbar({ onAddPost }: NavbarProps) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
+  const [createType, setCreateType] = useState<"post" | "reel">("post");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isMounted, setIsMounted] = useState(false);
+  const createMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme } = useTheme();
+
+  const searchableUsers = useMemo(() => {
+    const userMap = new Map<string, { id: string; username: string; displayName: string; avatarInitial: string; avatarGradient: string; avatarUrl?: string; isVerified?: boolean }>();
+    [currentUser, ...suggestedUsers, ...mockPosts.map((post) => post.user)].forEach((user) => {
+      if (!userMap.has(user.id)) userMap.set(user.id, user);
+    });
+    userMap.delete(currentUser.id);
+    return Array.from(userMap.values());
+  }, []);
+
+  const filteredUsers = useMemo(() => {
+    const term = searchQuery.trim().toLowerCase();
+    if (!term) return searchableUsers.slice(0, 8);
+    return searchableUsers
+      .filter((user) =>
+        user.username.toLowerCase().includes(term) ||
+        user.displayName.toLowerCase().includes(term)
+      )
+      .slice(0, 8);
+  }, [searchQuery, searchableUsers]);
 
   useEffect(() => {
-    setMounted(true);
+    setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!isSearchOpen) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsSearchOpen(false);
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [isSearchOpen]);
+
+  useEffect(() => {
+    if (!isCreateMenuOpen) return;
+    const onClickOutside = (event: MouseEvent) => {
+      if (!createMenuRef.current?.contains(event.target as Node)) {
+        setIsCreateMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onClickOutside);
+    return () => window.removeEventListener("mousedown", onClickOutside);
+  }, [isCreateMenuOpen]);
+
+  const openCreateModal = (type: "post" | "reel") => {
+    setCreateType(type);
+    setIsCreateMenuOpen(false);
+    if (onAddPost) onAddPost();
+    setIsCreateModalOpen(true);
+  };
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-40 h-[62px] bg-base/95 backdrop-blur-2xl border-b border-border-soft flex items-center px-4 sm:px-6 lg:px-10 gap-3">
+      <header className="fixed top-0 left-0 right-0 z-40 h-[62px] bg-base/95 backdrop-blur-2xl flex items-center px-4 sm:px-6 lg:px-10 gap-3 shadow-sm">
 
         {/* Logo */}
         <button
@@ -42,7 +93,7 @@ export default function Navbar({ onAddPost, onLoginClick }: NavbarProps) {
           className="flex items-center gap-1.5 cursor-pointer select-none group flex-shrink-0"
           onClick={() => router.push("/")}
         >
-          <span className="text-[20px] font-black tracking-tighter text-white group-hover:text-white/90 transition-colors font-mono">
+          <span className="text-[21px] font-black tracking-tighter text-ink group-hover:text-ink-2 transition-colors font-mono">
             mini
           </span>
           <span className="text-[20px] font-black tracking-tighter text-brand group-hover:text-brand/90 transition-colors font-mono">
@@ -50,69 +101,85 @@ export default function Navbar({ onAddPost, onLoginClick }: NavbarProps) {
           </span>
         </button>
 
-        {/* Search */}
-        <div className="relative flex-1 max-w-sm hidden sm:block ml-3">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[15px] h-[15px] text-ink-3 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search people, posts…"
-            className="w-full bg-[#1e1e1e] border border-border-soft rounded-xl pl-9 pr-4 py-[9px] text-[14px] text-ink placeholder-ink-3 outline-none focus:border-border-strong focus:bg-surface-3 transition-all"
-          />
-        </div>
-
         {/* Nav Actions */}
         <div className="ml-auto flex items-center gap-1.5">
-
-          {/* Theme Toggle */}
-          {mounted && (
-            <button
-              type="button"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              title="Toggle theme"
-              className="w-9 h-9 flex-shrink-0 rounded-xl border border-border-soft bg-transparent text-ink-3 flex items-center justify-center hover:bg-surface-2 hover:text-white hover:border-border-strong transition-all"
-            >
-              {theme === "dark" ? (
-                <Sun size={18} strokeWidth={1.8} className="text-brand" />
-              ) : (
-                <Moon size={18} strokeWidth={1.8} className="text-ink-3" />
-              )}
-            </button>
-          )}
-
-          {/* Add Post */}
+          {/* Search */}
           <button
             type="button"
             onClick={() => {
-              if (onAddPost) onAddPost();
-              setIsCreateModalOpen(true);
+              setIsSearchOpen(true);
+              setSearchQuery("");
             }}
-            title="New post"
-            className="w-9 h-9 rounded-xl border border-border-soft bg-transparent text-ink-3 flex items-center justify-center hover:bg-surface-2 hover:text-white hover:border-border-strong transition-all"
+            title="Search"
+            className="w-9 h-9 rounded-xl bg-transparent text-ink-3 flex items-center justify-center hover:bg-surface-2 hover:text-ink transition-all"
           >
-            <PlusSquare size={19} strokeWidth={1.8} />
+            <Search size={18} strokeWidth={1.9} />
           </button>
 
-          {/* Notifications */}
+          {/* Theme Toggle */}
           <button
             type="button"
-            title="Notifications"
-            onClick={() => setNotifSeen(true)}
-            className="relative w-9 h-9 rounded-xl border border-border-soft bg-transparent text-ink-3 flex items-center justify-center hover:bg-surface-2 hover:text-white hover:border-border-strong transition-all"
+            onClick={() => {
+              const activeTheme = resolvedTheme ?? theme;
+              setTheme(activeTheme === "dark" ? "light" : "dark");
+            }}
+            title="Toggle theme"
+            className="w-9 h-9 flex-shrink-0 rounded-xl bg-transparent text-ink-3 flex items-center justify-center hover:bg-surface-2 hover:text-ink transition-all"
           >
-            <Bell size={19} strokeWidth={1.8} />
-            {!notifSeen && (
-              <span className="absolute top-[9px] right-[9px] w-[7px] h-[7px] rounded-full bg-red-500 border-[1.5px] border-[#111]" />
+            {!isMounted ? (
+              <span className="w-[18px] h-[18px]" aria-hidden="true" />
+            ) : (resolvedTheme ?? theme) === "dark" ? (
+              <Sun size={18} strokeWidth={1.8} className="text-brand" />
+            ) : (
+              <Moon size={18} strokeWidth={1.8} className="text-ink-3" />
             )}
           </button>
 
-          {/* Messages */}
-          <button
-            type="button"
-            title="Messages"
-            className="w-9 h-9 rounded-xl border border-border-soft bg-transparent text-ink-3 hidden md:flex items-center justify-center hover:bg-surface-2 hover:text-white hover:border-border-strong transition-all"
-          >
-            <MessageCircle size={19} strokeWidth={1.8} />
-          </button>
+          {/* Add Post / Reel */}
+          <div className="relative" ref={createMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsCreateMenuOpen((prev) => !prev)}
+              title="Create"
+              className="w-9 h-9 rounded-full bg-ink text-base flex items-center justify-center hover:opacity-90 transition-opacity"
+            >
+              <Plus size={18} strokeWidth={2.6} />
+            </button>
+
+            <AnimatePresence>
+              {isCreateMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                  transition={{ duration: 0.16 }}
+                  className="absolute right-0 top-11 w-[180px] p-1.5 rounded-xl border border-border-soft bg-surface shadow-2xl z-[90]"
+                >
+                  <button
+                    type="button"
+                    onClick={() => openCreateModal("post")}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover:bg-surface-2 transition-colors text-left"
+                  >
+                    <span className="w-7 h-7 rounded-md bg-surface-2 flex items-center justify-center">
+                      <ImagePlus size={15} className="text-ink-2" />
+                    </span>
+                    <span className="text-[14px] font-medium text-ink">Post</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => openCreateModal("reel")}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover:bg-surface-2 transition-colors text-left"
+                  >
+                    <span className="w-7 h-7 rounded-md bg-surface-2 flex items-center justify-center">
+                      <Video size={15} className="text-ink-2" />
+                    </span>
+                    <span className="text-[14px] font-medium text-ink">Reel</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           {/* Avatar */}
           <div className="ml-1">
@@ -130,7 +197,72 @@ export default function Navbar({ onAddPost, onLoginClick }: NavbarProps) {
       <CreatePostModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
+        initialType={createType}
       />
+
+      <AnimatePresence>
+        {isSearchOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[80] bg-black/65 backdrop-blur-sm flex items-start justify-center pt-20 px-4"
+            onClick={() => setIsSearchOpen(false)}
+          >
+            <motion.div
+              initial={{ y: -12, opacity: 0, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: -8, opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+              className="w-full max-w-[560px] bg-surface rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-border-soft">
+                <Search size={16} className="text-ink-3" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search friends by name or username..."
+                  className="flex-1 bg-transparent text-[14px] text-ink placeholder-ink-3 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsSearchOpen(false)}
+                  className="w-7 h-7 rounded-md text-ink-3 hover:text-ink hover:bg-surface-2 flex items-center justify-center transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="max-h-[340px] overflow-y-auto py-1">
+                {filteredUsers.length === 0 ? (
+                  <p className="px-4 py-6 text-[13px] text-ink-3 text-center">No friends found.</p>
+                ) : (
+                  filteredUsers.map((user) => (
+                    <button
+                      key={user.id}
+                      type="button"
+                      onClick={() => {
+                        setIsSearchOpen(false);
+                        router.push(`/profile/@${user.username}`);
+                      }}
+                      className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-surface-2 transition-colors text-left"
+                    >
+                      <Avatar user={user} size="sm" ring />
+                      <div className="min-w-0">
+                        <p className="text-[14px] font-semibold text-ink truncate">{user.displayName}</p>
+                        <p className="text-[13px] text-ink-3 truncate">@{user.username}</p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   Heart,
@@ -47,7 +48,7 @@ export default function PostCard({ post, onOpenPost, animDelay }: PostCardProps)
 
   return (
     <article
-      className="bg-surface border border-border-soft rounded-2xl overflow-hidden mb-5 hover:border-border-mid transition-colors animate-fade-up"
+      className="bg-surface rounded-2xl overflow-hidden mb-6 transition-colors animate-fade-up shadow-sm"
       style={animDelay ? { animationDelay: animDelay } : {}}
     >
       {/* Post Header */}
@@ -62,19 +63,19 @@ export default function PostCard({ post, onOpenPost, animDelay }: PostCardProps)
             <button
               type="button"
               onClick={() => router.push(`/profile/@${post.user.username}`)}
-              className="text-[15px] font-semibold text-ink hover:text-brand transition-colors leading-tight"
+               className="text-[16px] font-semibold text-ink hover:text-brand transition-colors leading-tight"
             >
               {post.user.username}
             </button>
             {post.user.isVerified && (
-              <BadgeCheck size={16} className="text-sky-400 flex-shrink-0 fill-sky-500 stroke-[#1a1a1a]" />
+              <BadgeCheck size={16} className="text-ink-2 flex-shrink-0 fill-ink-3 stroke-base" />
             )}
             <span className="text-[13px] text-ink-3 mx-0.5">·</span>
             <button
               type="button"
               onClick={() => setFollowing((f) => !f)}
               className={[
-                "flex items-center gap-1 text-[13px] font-semibold transition-all",
+                "flex items-center gap-1 text-[12px] font-semibold transition-all",
                 following
                   ? "text-ink-3"
                   : "text-brand hover:text-brand/80",
@@ -87,11 +88,11 @@ export default function PostCard({ post, onOpenPost, animDelay }: PostCardProps)
           <div className="flex items-center gap-1.5 mt-0.5">
             {post.location && (
               <>
-                <span className="text-[13px] text-ink-3">{post.location}</span>
-                <span className="text-[13px] text-ink-3">·</span>
+                <span className="text-[12px] text-ink-3">{post.location}</span>
+                <span className="text-[12px] text-ink-3">·</span>
               </>
             )}
-            <span className="text-[13px] text-ink-3">{post.createdAt}</span>
+            <span className="text-[12px] text-ink-3">{post.createdAt}</span>
           </div>
         </div>
         <button
@@ -107,22 +108,35 @@ export default function PostCard({ post, onOpenPost, animDelay }: PostCardProps)
         className={`w-full bg-base relative overflow-hidden cursor-pointer group ${aspectClass}`}
         onClick={() => onOpenPost(post)}
       >
-        <div className="w-full h-full flex flex-col items-center justify-center gap-3 group-hover:scale-[1.02] transition-transform duration-500">
-          <span className="text-7xl drop-shadow-2xl">{post.mediaEmoji}</span>
-          <span className="font-mono text-[13px] text-ink-3 bg-black/40 px-3 py-1 rounded-full border border-border-soft tracking-wide">
-            {post.mediaLabel}
-          </span>
-        </div>
+        {post.mediaType === "image" ? (
+          <Image
+            src={post.mediaUrl}
+            alt={post.mediaLabel}
+            fill
+            sizes="(max-width: 768px) 100vw, 600px"
+            className="object-cover group-hover:scale-[1.02] transition-transform duration-500"
+          />
+        ) : (
+          <video
+            src={post.mediaUrl}
+            poster={post.thumbnailUrl}
+            className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
+            muted
+            playsInline
+          />
+        )}
         {post.mediaType === "video" && (
-          <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-sm text-white text-[12px] font-bold px-2.5 py-1 rounded-lg border border-border-mid flex items-center gap-1.5">
+          <div className="absolute top-3 right-3 bg-black/65 backdrop-blur-sm text-white text-[11px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5">
             <Video size={12} />
-            VIDEO
+            Reel
           </div>
         )}
-        {/* Overlay hint */}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm rounded-xl px-5 py-2.5 text-[13px] text-white font-semibold border border-border-mid">
-            View post
+        <div className="absolute left-3 bottom-3">
+          <span className="text-[11px] text-white/90 bg-black/45 px-2.5 py-1 rounded-md">{post.mediaLabel}</span>
+        </div>
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center">
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/55 rounded-lg px-4 py-2 text-[12px] text-white font-semibold">
+            Open
           </div>
         </div>
       </div>
@@ -135,8 +149,8 @@ export default function PostCard({ post, onOpenPost, animDelay }: PostCardProps)
           onClick={handleLike}
           className={[
             "flex items-center gap-1.5 px-3 py-2 rounded-xl text-[14px] font-medium transition-all",
-            liked
-              ? "text-red-400 bg-red-500/10 hover:bg-red-500/15"
+              liked
+              ? "text-brand bg-brand/10 hover:bg-brand/15"
               : "text-ink-3 hover:bg-surface-2 hover:text-ink",
           ].join(" ")}
         >
@@ -174,7 +188,7 @@ export default function PostCard({ post, onOpenPost, animDelay }: PostCardProps)
           className={[
             "ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl text-[14px] transition-all",
             saved
-              ? "text-brand bg-brand/10 hover:bg-[rgba(232,255,71,0.12)]"
+              ? "text-brand bg-brand/10 hover:bg-brand/10"
               : "text-ink-3 hover:bg-surface-2 hover:text-ink",
           ].join(" ")}
         >
@@ -188,7 +202,7 @@ export default function PostCard({ post, onOpenPost, animDelay }: PostCardProps)
 
       {/* Caption */}
       <div className="px-4 pt-2 pb-4">
-        <p className="text-[14px] text-ink-2 leading-relaxed">
+        <p className="text-[15px] text-ink-2 leading-relaxed">
           <button
             type="button"
             onClick={() => router.push(`/profile/@${post.user.username}`)}
@@ -199,7 +213,7 @@ export default function PostCard({ post, onOpenPost, animDelay }: PostCardProps)
           {post.caption}
         </p>
         {post.tags.length > 0 && (
-          <p className="text-[13px] text-sky-400/80 mt-1.5">{post.tags.join(" ")}</p>
+          <p className="text-[13px] text-ink-3 mt-1.5">{post.tags.join(" ")}</p>
         )}
         {post.comments > 0 && (
           <button

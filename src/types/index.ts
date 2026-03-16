@@ -5,6 +5,7 @@ export interface User {
   avatarInitial: string;
   avatarGradient: string;
   avatarUrl?: string;
+  email?: string;
   isVerified?: boolean;
   followers?: number;
   following?: number;
@@ -25,7 +26,8 @@ export interface Comment {
 export interface Post {
   id: string;
   user: User;
-  mediaEmoji: string;
+  mediaUrl: string;
+  thumbnailUrl?: string;
   mediaLabel: string;
   mediaType: "image" | "video";
   aspectRatio?: "square" | "portrait" | "landscape";
@@ -42,4 +44,13 @@ export interface Post {
 export interface SuggestedUser extends User {
   mutualFriends?: number;
   reason: string;
+}
+
+export interface Story {
+  id: string;
+  username: string;
+  mediaType: "image" | "video";
+  mediaUrl: string;
+  thumbnailUrl?: string;
+  seen: boolean;
 }
