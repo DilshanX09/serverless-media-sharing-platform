@@ -11,19 +11,33 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {
-      alert("Passwords do not match");
+      setError("Passwords do not match");
       return;
     }
+
+    setError("");
     setIsLoading(true);
-    // Simulate registration
-    setTimeout(() => {
+
+    const response = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, username, password, displayName: username }),
+    });
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => ({}))) as { error?: string };
       setIsLoading(false);
-      router.push("/profile/@" + username);
-    }, 1500);
+      setError(data.error ?? "Unable to create account. Please try again.");
+      return;
+    }
+
+    setIsLoading(false);
+    router.push("/");
   };
 
   return (
@@ -112,6 +126,8 @@ export default function RegisterPage() {
           >
             {isLoading ? "Creating account..." : "Sign up"}
           </button>
+
+          {error ? <p className="text-[13px] text-red-500 font-medium">{error}</p> : null}
         </form>
 
         <p className="text-left text-[14px] text-ink-3 mt-9">

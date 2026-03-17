@@ -2,11 +2,17 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import ChunkErrorHandler from "@/components/system/ChunkErrorHandler";
+import { Inter } from "next/font/google";
 
 export const metadata: Metadata = {
   title: "mini.insta — Share Your World",
   description: "A minimal, beautiful photo sharing experience",
 };
+
+const inter = Inter({
+  subsets: ["latin", "latin-ext"],
+  weight: ["400", "500", "700"],
+});
 
 export default function RootLayout({
   children,
@@ -15,7 +21,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="bg-base text-ink">
+      <body className={`bg-base text-ink ${inter.className}`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"

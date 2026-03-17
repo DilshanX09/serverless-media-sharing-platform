@@ -3,16 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Heart, Send, Smile } from "lucide-react";
-import EmojiPicker, { EmojiClickData, EmojiStyle, Theme } from "emoji-picker-react";
-import { useTheme } from "next-themes";
 import twemoji from "twemoji";
-import type { Comment } from "@/types";
-import { currentUser } from "@/lib/mockData";
+import type { Comment, User } from "@/types";
 import Avatar from "@/components/ui/Avatar";
+import ConfirmModal from "@/components/ui/ConfirmModal";
 
 interface CommentItemProps {
   comment: Comment;
+  postId: string;
   depth?: number;
+  parentId?: string | null;
+  currentUser?: User;
+  onReplyCreated?: (totalComments: number) => void;
+  onCommentDeleted?: (payload: { commentId: string; parentId: string | null; totalComments: number }) => void;
 }
 
 function escapeHtml(value: string): string {
@@ -32,7 +35,15 @@ function renderEmojiHtml(text: string): string {
   });
 }
 
-export default function CommentItem({ comment, depth = 0 }: CommentItemProps) {
+export default function CommentItem({
+  comment,
+  postId,
+  depth = 0,
+  parentId = null,
+  currentUser,
+  onReplyCreated,
+  onCommentDeleted,
+}: CommentItemProps) {
   const [liked, setLiked] = useState(comment.isLiked ?? false);
   const [likeCount, setLikeCount] = useState(comment.likes);
   const [repliesOpen, setRepliesOpen] = useState(false);
@@ -40,10 +51,13 @@ export default function CommentItem({ comment, depth = 0 }: CommentItemProps) {
   const [replyText, setReplyText] = useState("");
   const [replyEmojiOpen, setReplyEmojiOpen] = useState(false);
   const [localReplies, setLocalReplies] = useState<Comment[]>(comment.replies ?? []);
+  const [isReplySubmitting, setIsReplySubmitting] = useState(false);
+  const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const replyEmojiPickerRef = useRef<HTMLDivElement>(null);
   const replyInputRef = useRef<HTMLInputElement>(null);
-  const { resolvedTheme } = useTheme();
+  const quickEmojis = ["😀", "😂", "😍", "🔥", "👏", "🙏", "❤️", "👍"];
 
   useEffect(() => {
     setIsMounted(true);
@@ -60,34 +74,92 @@ export default function CommentItem({ comment, depth = 0 }: CommentItemProps) {
     return () => window.removeEventListener("mousedown", handleOutsideClick);
   }, [replyEmojiOpen]);
 
+  useEffect(() => {
+    setLocalReplies(comment.replies ?? []);
+  }, [comment.replies]);
+
   const handleLike = () => {
-    setLiked((prev) => !prev);
-    setLikeCount((prev) => (liked ? prev - 1 : prev + 1));
-  };
-
-  const submitReply = () => {
-    const trimmed = replyText.trim();
-    if (!trimmed) return;
-    const newReply: Comment = {
-      id: `reply-${Date.now()}`,
-      user: currentUser,
-      text: trimmed,
-      createdAt: "Just now",
-      likes: 0,
-      isLiked: false,
-      replies: [],
+    const run = async () => {
+      const optimisticLiked = !liked;
+      const optimisticCount = optimisticLiked ? likeCount + 1 : Math.max(0, likeCount - 1);
+      setLiked(optimisticLiked);
+      setLikeCount(optimisticCount);
+      try {
+        const response = await fetch("/api/social/comments/likes/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ commentId: comment.id }),
+        });
+        if (!response.ok) throw new Error("toggle failed");
+        const data = (await response.json()) as { liked: boolean; totalLikes: number };
+        setLiked(data.liked);
+        setLikeCount(data.totalLikes);
+      } catch {
+        setLiked(liked);
+        setLikeCount(likeCount);
+      }
     };
-    setLocalReplies((prev) => [...prev, newReply]);
-    setReplyText("");
-    setReplyFormOpen(false);
-    setReplyEmojiOpen(false);
-    setRepliesOpen(true);
+    void run();
   };
 
-  const onReplyEmojiClick = (emojiData: EmojiClickData) => {
-    setReplyText((prev) => `${prev}${emojiData.emoji}`);
+  const submitReply = async () => {
+    const trimmed = replyText.trim();
+    if (!trimmed || !currentUser || isReplySubmitting) return;
+    setIsReplySubmitting(true);
+    try {
+      const response = await fetch("/api/social/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          postId,
+          parentId: comment.id,
+          content: trimmed,
+        }),
+      });
+      if (!response.ok) return;
+      const data = (await response.json()) as { comment?: Comment; totalComments?: number };
+      if (typeof data.totalComments === "number") onReplyCreated?.(data.totalComments);
+      if (data.comment) {
+        setLocalReplies((prev) => [...prev, data.comment as Comment]);
+      }
+      setReplyText("");
+      setReplyFormOpen(false);
+      setReplyEmojiOpen(false);
+      setRepliesOpen(true);
+    } finally {
+      setIsReplySubmitting(false);
+    }
+  };
+
+  const onReplyEmojiClick = (emoji: string) => {
+    setReplyText((prev) => `${prev}${emoji}`);
     setReplyEmojiOpen(false);
     replyInputRef.current?.focus();
+  };
+
+  const handleDelete = async () => {
+    if (!currentUser || currentUser.id !== comment.user.id || isDeleteSubmitting) return;
+    setIsDeleteSubmitting(true);
+    try {
+      const response = await fetch("/api/social/comments", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ commentId: comment.id }),
+      });
+      if (!response.ok) return;
+      const data = (await response.json()) as { totalComments: number };
+      onCommentDeleted?.({
+        commentId: comment.id,
+        parentId,
+        totalComments: data.totalComments,
+      });
+      setIsDeleteConfirmOpen(false);
+    } finally {
+      setIsDeleteSubmitting(false);
+    }
   };
 
   return (
@@ -132,6 +204,16 @@ export default function CommentItem({ comment, depth = 0 }: CommentItemProps) {
                 Reply
               </button>
             )}
+            {currentUser?.id === comment.user.id ? (
+              <button
+                type="button"
+                onClick={() => setIsDeleteConfirmOpen(true)}
+                disabled={isDeleteSubmitting}
+                className="text-[13px] font-semibold text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+              >
+                {isDeleteSubmitting ? "Deleting..." : "Delete"}
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -160,7 +242,20 @@ export default function CommentItem({ comment, depth = 0 }: CommentItemProps) {
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.16 }}
               >
-                <CommentItem comment={reply} depth={depth + 1} />
+                <CommentItem
+                  comment={reply}
+                  postId={postId}
+                  depth={depth + 1}
+                  parentId={comment.id}
+                  currentUser={currentUser}
+                  onReplyCreated={onReplyCreated}
+                  onCommentDeleted={(payload) => {
+                    if (payload.parentId === comment.id) {
+                      setLocalReplies((prev) => prev.filter((item) => item.id !== payload.commentId));
+                    }
+                    onCommentDeleted?.(payload);
+                  }}
+                />
               </motion.div>
             ))}
           </AnimatePresence>
@@ -186,19 +281,20 @@ export default function CommentItem({ comment, depth = 0 }: CommentItemProps) {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 6, scale: 0.96 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute bottom-9 left-0 z-20"
+                  className="absolute bottom-9 left-0 z-20 rounded-xl border border-border-soft bg-surface p-2 shadow-xl"
                 >
-                  <EmojiPicker
-                    onEmojiClick={onReplyEmojiClick}
-                    lazyLoadEmojis
-                    searchDisabled
-                    skinTonesDisabled
-                    width={290}
-                    height={320}
-                    emojiStyle={EmojiStyle.APPLE}
-                    previewConfig={{ showPreview: false }}
-                    theme={resolvedTheme === "dark" ? Theme.DARK : Theme.LIGHT}
-                  />
+                  <div className="grid grid-cols-4 gap-1">
+                    {quickEmojis.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => onReplyEmojiClick(emoji)}
+                        className="w-8 h-8 rounded-lg hover:bg-surface-2 text-[18px]"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -217,13 +313,24 @@ export default function CommentItem({ comment, depth = 0 }: CommentItemProps) {
           <button
             type="button"
             onClick={submitReply}
-            disabled={!replyText.trim()}
+            disabled={!replyText.trim() || isReplySubmitting}
             className="w-7 h-7 rounded-full bg-surface-2 disabled:opacity-50 text-ink-2 hover:text-ink transition-all flex items-center justify-center"
           >
             <Send size={13} strokeWidth={2.2} />
           </button>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={isDeleteConfirmOpen}
+        title={depth > 0 ? "Delete reply?" : "Delete comment?"}
+        description="This action cannot be undone."
+        confirmLabel="Delete"
+        tone="danger"
+        isConfirming={isDeleteSubmitting}
+        onCancel={() => setIsDeleteConfirmOpen(false)}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   );
 }

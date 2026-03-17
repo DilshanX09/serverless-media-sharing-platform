@@ -2,28 +2,44 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BadgeCheck, UserPlus } from "lucide-react";
-import { currentUser, suggestedUsers } from "@/lib/mockData";
+import { BadgeCheck } from "lucide-react";
 import Avatar from "@/components/ui/Avatar";
+import type { SuggestedUser, User } from "@/types";
 
 interface SidebarProps {
   isLoading?: boolean;
+  currentUserData?: User;
+  suggestedUsersData?: SuggestedUser[];
+  isGuest?: boolean;
+  onFollowedSuggestion?: (userId: string) => void;
 }
 
-export default function Sidebar({ isLoading = false }: SidebarProps) {
-  const [following, setFollowing] = useState<Set<string>>(new Set());
+export default function Sidebar({
+  isLoading = false,
+  currentUserData,
+  suggestedUsersData,
+  isGuest = false,
+  onFollowedSuggestion,
+}: SidebarProps) {
   const router = useRouter();
+  const [isSubmittingFor, setIsSubmittingFor] = useState<string | null>(null);
+  const user = currentUserData;
+  const suggestions = suggestedUsersData ?? [];
 
-  const toggleFollow = (id: string) => {
-    setFollowing((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+  const handleFollow = async (targetUserId: string) => {
+    try {
+      setIsSubmittingFor(targetUserId);
+      const response = await fetch("/api/social/follows/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ targetUserId }),
+      });
+      if (!response.ok) return;
+      onFollowedSuggestion?.(targetUserId);
+    } finally {
+      setIsSubmittingFor(null);
+    }
   };
 
   return (
@@ -48,7 +64,10 @@ export default function Sidebar({ isLoading = false }: SidebarProps) {
             </div>
             <div className="space-y-2">
               {Array.from({ length: 5 }).map((_, index) => (
-                <div key={`suggested-skeleton-${index}`} className="flex items-center gap-3 py-2.5 px-2">
+                <div
+                  key={`suggested-skeleton-${index}`}
+                  className="flex items-center gap-3 py-2.5 px-2"
+                >
                   <div className="w-8 h-8 rounded-full bg-surface-2 animate-pulse" />
                   <div className="flex-1 space-y-1.5">
                     <div className="w-24 h-3 rounded bg-surface-2 animate-pulse" />
@@ -60,104 +79,146 @@ export default function Sidebar({ isLoading = false }: SidebarProps) {
             </div>
           </div>
         </>
-      ) : (
-        <>
-
-      {/* Profile */}
-      <div className="px-1 pb-2">
-        <div className="flex items-center gap-3.5 mb-2">
-          <Avatar
-            user={currentUser}
-            size="lg"
-            ring
-            onClick={() => router.push(`/profile/@${currentUser.username}`)}
-          />
-          <div className="flex-1 min-w-0">
-            <p className="text-[18px] font-semibold text-ink leading-tight">{currentUser.displayName}</p>
-            <p className="text-[15px] text-ink-2 mt-0.5">@{currentUser.username}</p>
-          </div>
+      ) : isGuest ? (
+        <div className="p-4 rounded-2xl border border-border-soft bg-surface">
+          <p className="text-[15px] font-semibold text-ink">
+            Unlock full mini.insta
+          </p>
+          <p className="text-[13px] text-ink-3 mt-1">
+            Logged-in users can view stories, suggestions, profile tools, and
+            more.
+          </p>
           <button
             type="button"
-            onClick={() => router.push(`/profile/@${currentUser.username}`)}
-            className="text-[13px] font-semibold text-ink-2 hover:text-ink transition-colors"
+            onClick={() => router.push("/login")}
+            className="mt-4 w-full rounded-xl bg-ink text-base text-[14px] font-semibold py-2.5 hover:opacity-90 transition-opacity"
           >
-            Edit
+            Click here to log in
           </button>
         </div>
-      </div>
-
-      {/* Suggested Friends */}
-      <div className="px-1 pt-2">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-[12px] font-semibold text-ink-3 uppercase tracking-[1.1px]">
-            Suggested for you
-          </span>
-          <button type="button" className="text-[12px] font-semibold text-ink-2 hover:text-ink transition-colors">
-            See all
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          {suggestedUsers.map((user) => (
-            <div
-              key={user.id}
-              className={[
-                "flex items-center gap-3 py-2.5 px-2 rounded-xl hover:bg-surface/50 transition-colors",
-              ].join(" ")}
-            >
+      ) : user ? (
+        <>
+          {/* Profile */}
+          <div className="px-1 pb-2">
+            <div className="flex items-center gap-3.5 mb-2">
               <Avatar
                 user={user}
-                size="sm"
-                ring
+                size="lg"
                 onClick={() => router.push(`/profile/@${user.username}`)}
               />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <p
-                    className="text-[14px] font-semibold text-ink truncate cursor-pointer transition-colors leading-tight hover:text-ink-2"
-                    onClick={() => router.push(`/profile/@${user.username}`)}
-                  >
-                    {user.displayName}
-                  </p>
-                    {user.isVerified && (
-                      <BadgeCheck size={13} className="text-white flex-shrink-0 fill-white/80 stroke-base" />
-                    )}
-                </div>
-                <p className="text-[13px] text-ink-3 mt-0.5 truncate">@{user.username}</p>
-                <p className="text-[12px] text-ink-3/90 mt-0.5 truncate">{user.reason}</p>
+                <p className="text-[18px] font-semibold text-ink leading-tight">
+                  {user.displayName}
+                </p>
+                <p className="text-[15px] text-ink-2 mt-0.5">
+                  @{user.username}
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => toggleFollow(user.id)}
-                className={[
-                  "flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg transition-all whitespace-nowrap",
-                  following.has(user.id)
-                    ? "bg-surface-2 text-ink-3 border border-border-soft"
-                    : "bg-ink text-base hover:opacity-90",
-                ].join(" ")}
+                onClick={() => router.push(`/profile/@${user.username}`)}
+                className="text-[13px] font-semibold text-ink-2 hover:text-ink transition-colors"
               >
-                {!following.has(user.id) && <UserPlus size={13} strokeWidth={2.5} />}
-                {following.has(user.id) ? "Following" : "Follow"}
+                Edit
               </button>
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      {/* Footer */}
-      <p className="text-[12px] text-ink-3 leading-loose px-1">
-        About · Portfolio · Contact<br />
-        <span suppressHydrationWarning>© {new Date().getFullYear()} Dilshan</span> ·{" "}
-        <a
-          href="https://www.dilshanxo.dev"
-          target="_blank"
-          rel="noreferrer"
-          className="text-ink-2 hover:text-ink transition-colors"
-        >
-          www.dilshanxo.dev
-        </a>
-      </p>
+          {/* Suggested Friends */}
+          <div className="px-1 pt-2">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[12px] font-semibold text-ink-3 uppercase tracking-[1.1px]">
+                Suggested for you
+              </span>
+              <button
+                type="button"
+                className="text-[12px] font-semibold text-ink-2 hover:text-ink transition-colors"
+              >
+                See all
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {suggestions.map((suggested) => (
+                <div
+                  key={suggested.id}
+                  className="flex items-center gap-3 py-2.5 px-2 rounded-xl hover:bg-surface/50 transition-colors"
+                >
+                  <Avatar
+                    user={suggested}
+                    size="lg"
+                    onClick={() =>
+                      router.push(`/profile/@${suggested.username}`)
+                    }
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p
+                        className="text-[14px] font-semibold text-ink truncate cursor-pointer transition-colors leading-tight hover:text-ink-2"
+                        onClick={() =>
+                          router.push(`/profile/@${suggested.username}`)
+                        }
+                      >
+                        {suggested.displayName}
+                      </p>
+                      {suggested.isVerified && (
+                        <BadgeCheck
+                          size={13}
+                          className="text-white flex-shrink-0 fill-white/80 stroke-base"
+                        />
+                      )}
+                    </div>
+                    <p className="text-[13px] text-ink-3 mt-0.5 truncate">
+                      @{suggested.username}
+                    </p>
+                    <p className="text-[12px] text-ink-3/90 mt-0.5 truncate">
+                      {suggested.reason}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleFollow(suggested.id)}
+                    disabled={isSubmittingFor === suggested.id}
+                    className="text-[12px] font-semibold text-brand hover:opacity-80 transition-opacity disabled:opacity-50"
+                  >
+                    {isSubmittingFor === suggested.id
+                      ? "..."
+                      : suggested.isFollowedBy
+                        ? "Follow back"
+                        : "Follow"}
+                  </button>
+                </div>
+              ))}
+              {suggestions.length === 0 && (
+                <p className="text-[13px] text-ink-3 px-2 py-3">
+                  No suggestions right now.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <p className="text-[12px] text-ink-3 leading-loose px-1">
+            About · Portfolio · Contact
+            <br />
+            <span suppressHydrationWarning>
+              © {new Date().getFullYear()} Dilshan
+            </span>{" "}
+            ·{" "}
+            <a
+              href="https://www.dilshanxo.dev"
+              target="_blank"
+              rel="noreferrer"
+              className="text-ink-2 hover:text-ink transition-colors"
+            >
+              www.dilshanxo.dev
+            </a>
+          </p>
         </>
+      ) : (
+        <div className="px-1 py-3 text-[13px] text-ink-3">
+          Loading account...
+        </div>
       )}
     </aside>
   );

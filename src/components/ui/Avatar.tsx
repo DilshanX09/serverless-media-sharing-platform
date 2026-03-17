@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Image from "next/image";
+import { UserRound } from "lucide-react";
 import type { User } from "@/types";
 
 interface AvatarProps {
@@ -26,6 +28,12 @@ export default function Avatar({
   ring = false,
   className = "",
 }: AvatarProps) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [user.avatarUrl]);
+
   const classes = [
     "relative flex-shrink-0 rounded-full flex items-center justify-content-center",
     "bg-gradient-to-br",
@@ -36,18 +44,23 @@ export default function Avatar({
     className,
   ].join(" ");
 
-  const content = user.avatarUrl ? (
+  const fallbackInitial = (user.avatarInitial || user.displayName?.[0] || user.username?.[0] || "").toUpperCase();
+
+  const content = user.avatarUrl && !imageFailed ? (
     <Image
       src={user.avatarUrl}
       alt={user.displayName}
       fill
       sizes="56px"
       className="object-cover rounded-full"
+      onError={() => setImageFailed(true)}
     />
   ) : (
-    <span className="font-bold text-white leading-none select-none">
-      {user.avatarInitial}
-    </span>
+    fallbackInitial ? (
+      <span className="font-bold text-white leading-none select-none">{fallbackInitial}</span>
+    ) : (
+      <UserRound size={size === "xs" ? 12 : size === "sm" ? 14 : size === "md" ? 16 : 18} className="text-white/90" />
+    )
   );
 
   if (onClick) {

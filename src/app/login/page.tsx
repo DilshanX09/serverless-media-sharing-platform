@@ -9,15 +9,28 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate login
-    setTimeout(() => {
+    setError("");
+
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => ({}))) as { error?: string };
       setIsLoading(false);
-      router.push("/");
-    }, 1200);
+      setError(data.error ?? "Unable to log in. Please try again.");
+      return;
+    }
+
+    setIsLoading(false);
+    router.push("/");
   };
 
   return (
@@ -79,6 +92,8 @@ export default function LoginPage() {
           >
             {isLoading ? "Logging in..." : "Log in"}
           </button>
+
+          {error ? <p className="text-[13px] text-red-500 font-medium">{error}</p> : null}
         </form>
 
         <p className="text-left text-[14px] text-ink-3 mt-9">

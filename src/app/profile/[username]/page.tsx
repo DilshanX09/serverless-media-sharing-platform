@@ -8,94 +8,251 @@ import {
   Bookmark,
   Heart,
   Image as ImageIcon,
-  UserPlus,
-  UserCheck,
   MessageCircle,
   BadgeCheck,
   ArrowLeft,
   Settings,
+  LogOut,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import EditProfileModal from "@/components/profile/EditProfileModal";
 import PostModal from "@/components/post/PostModal";
-import { mockPosts, currentUser, suggestedUsers } from "@/lib/mockData";
 import type { Post, User } from "@/types";
+import { getAvatarGradient } from "@/lib/apiMappers";
 
-// Build profile lookup from all available users
-const buildProfileData = (username: string) => {
-  // Strip leading @
-  const clean = username.replace(/^@/, "");
+interface ProfileResponse {
+  user: User;
+  posts: Post[];
+  savedPosts?: Post[];
+  isOwn: boolean;
+}
 
-  // Is this the current user?
-  if (clean === currentUser.username) {
-    return {
-      user: currentUser,
-      posts: mockPosts,
-      isOwn: true,
-    };
-  }
+const profileCacheKey = (username: string) => `mini_insta_profile_${username}`;
 
-  // Look in mockPosts users
-  const postUser = mockPosts.find((p) => p.user.username === clean)?.user;
-  const suggestUser = suggestedUsers.find((u) => u.username === clean);
-  const found = postUser ?? suggestUser ?? null;
+async function uploadAvatarFromBlobUrl(blobUrl: string): Promise<string> {
+  const blobResponse = await fetch(blobUrl);
+  if (!blobResponse.ok) throw new Error("Failed to read selected avatar.");
+  const blob = await blobResponse.blob();
+  const extension = blob.type.includes("png") ? "png" : blob.type.includes("webp") ? "webp" : "jpg";
+  const fileName = `avatar-${Date.now()}.${extension}`;
 
-  if (!found) return null;
+  const sasResponse = await fetch("/api/upload/sas", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ fileName, mediaType: "IMAGE" }),
+  });
+  if (!sasResponse.ok) throw new Error("Failed to create avatar upload URL.");
+  const sasData = (await sasResponse.json()) as { uploadUrl: string; blobUrl: string };
 
-  // Give them some posts (filter or fabricate)
-  const userPosts = mockPosts.filter((p) => p.user.username === clean);
-
-  return {
-    user: found,
-    posts: userPosts,
-    isOwn: false,
-  };
-};
+  const uploadResponse = await fetch(sasData.uploadUrl, {
+    method: "PUT",
+    headers: {
+      "x-ms-blob-type": "BlockBlob",
+      "Content-Type": blob.type || "application/octet-stream",
+    },
+    body: blob,
+  });
+  if (!uploadResponse.ok) throw new Error("Avatar upload failed.");
+  return sasData.blobUrl;
+}
 
 export default function ProfilePage() {
   const params = useParams();
   const router = useRouter();
-  const rawUsername = decodeURIComponent(params.username as string);
+  const usernameParam = params?.username;
+  const usernameValue = Array.isArray(usernameParam) ? usernameParam[0] : usernameParam;
+  const rawUsername = decodeURIComponent(usernameValue ?? "unknown").replace(/^@/, "");
 
-  const profile = buildProfileData(rawUsername) ?? {
-    user: {
-      id: rawUsername,
-      username: rawUsername.replace(/^@/, ""),
-      displayName: rawUsername.replace(/^@/, ""),
-      avatarInitial: rawUsername.replace(/^@/, "")[0]?.toUpperCase() ?? "U",
-      avatarGradient: "from-zinc-600 to-zinc-800",
-      isVerified: false,
-      followers: 0,
-      following: 0,
-      posts: 0,
-      bio: "",
-    },
-    posts: [],
-    isOwn: false,
-  };
-
-  const { user, posts, isOwn } = profile;
-
-  const [editableUser, setEditableUser] = useState<User>(user);
-  const [following, setFollowing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [profileData, setProfileData] = useState<ProfileResponse | null>(null);
+  const [editableUser, setEditableUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<"posts" | "saved">("posts");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [activePost, setActivePost] = useState<Post | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isSavedLoading, setIsSavedLoading] = useState(false);
 
   useEffect(() => {
-    setEditableUser(user);
-  }, [user]);
+    let mounted = true;
+    const loadProfile = async () => {
+      setIsLoading(true);
+      setLoadError(null);
+      try {
+        const cached = window.sessionStorage.getItem(profileCacheKey(rawUsername));
+        if (cached && mounted) {
+          const parsed = JSON.parse(cached) as ProfileResponse;
+          setProfileData(parsed);
+          setEditableUser(parsed.user);
+          setIsLoading(false);
+        }
+        const response = await fetch(`/api/profile/${encodeURIComponent(rawUsername)}`, { credentials: "include" });
+        if (response.status === 401) {
+          router.replace("/login");
+          return;
+        }
+        if (!response.ok) {
+          setLoadError("Profile not found.");
+          return;
+        }
+        const data = (await response.json()) as ProfileResponse;
+        if (!mounted) return;
+        setProfileData(data);
+        setEditableUser(data.user);
+        window.sessionStorage.setItem(profileCacheKey(rawUsername), JSON.stringify(data));
+      } catch {
+        if (!mounted) return;
+        setLoadError("Unable to load profile.");
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    };
+    loadProfile();
+    return () => {
+      mounted = false;
+    };
+  }, [rawUsername, router]);
 
-  const displayFollowers = (editableUser.followers ?? 0) + (following && !isOwn ? 1 : 0);
+  useEffect(() => {
+    if (activeTab !== "saved" || !profileData?.isOwn || profileData.savedPosts) return;
+    let active = true;
+    const loadSaved = async () => {
+      setIsSavedLoading(true);
+      try {
+        const response = await fetch(`/api/profile/${encodeURIComponent(rawUsername)}?includeSaved=1`, { credentials: "include" });
+        if (response.status === 401) {
+          router.replace("/login");
+          return;
+        }
+        if (!response.ok || !active) return;
+        const data = (await response.json()) as ProfileResponse;
+        setProfileData((prev) => (prev ? { ...prev, savedPosts: data.savedPosts ?? [] } : prev));
+      } finally {
+        if (active) setIsSavedLoading(false);
+      }
+    };
+    void loadSaved();
+    return () => {
+      active = false;
+    };
+  }, [activeTab, profileData?.isOwn, profileData?.savedPosts, rawUsername, router]);
+
+  const persistProfile = async (nextUser: Partial<User>) => {
+    if (!profileData?.isOwn || isSavingProfile) return;
+    setIsSavingProfile(true);
+    let avatarBlobUrl =
+      nextUser.avatarUrl && !nextUser.avatarUrl.startsWith("blob:") ? nextUser.avatarUrl : undefined;
+    if (nextUser.avatarUrl?.startsWith("blob:")) {
+      avatarBlobUrl = await uploadAvatarFromBlobUrl(nextUser.avatarUrl);
+    }
+
+    const response = await fetch("/api/profile/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        displayName: nextUser.displayName,
+        bio: nextUser.bio,
+        ...(avatarBlobUrl ? { avatarBlobUrl } : {}),
+      }),
+    });
+
+    if (!response.ok) {
+      setIsSavingProfile(false);
+      throw new Error("Failed to persist profile update");
+    }
+
+    const data = (await response.json()) as {
+      profile: {
+        displayName: string;
+        bio?: string | null;
+        avatarUrl?: string | null;
+        counts: { followers: number; following: number; posts: number };
+      };
+    };
+
+    setEditableUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            displayName: data.profile.displayName,
+            bio: data.profile.bio ?? "",
+            avatarUrl: data.profile.avatarUrl ?? prev.avatarUrl,
+            followers: data.profile.counts.followers,
+            following: data.profile.counts.following,
+            posts: data.profile.counts.posts,
+            avatarInitial: (data.profile.displayName[0] ?? prev.avatarInitial).toUpperCase(),
+          }
+        : prev
+    );
+    setProfileData((prev) => {
+      if (!prev) return prev;
+      const next = {
+        ...prev,
+        user: {
+          ...prev.user,
+          displayName: data.profile.displayName,
+          bio: data.profile.bio ?? "",
+          avatarUrl: data.profile.avatarUrl ?? prev.user.avatarUrl,
+          followers: data.profile.counts.followers,
+          following: data.profile.counts.following,
+          posts: data.profile.counts.posts,
+          avatarInitial: (data.profile.displayName[0] ?? prev.user.avatarInitial).toUpperCase(),
+        },
+      };
+      window.sessionStorage.setItem(profileCacheKey(rawUsername), JSON.stringify(next));
+      return next;
+    });
+
+    setIsSavingProfile(false);
+  };
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+    router.push("/login");
+    router.refresh();
+  };
+
+  if (isLoading || !editableUser || !profileData) {
+    return (
+      <>
+        <Navbar />
+        <main className="pt-[62px] min-h-screen bg-base">
+          <div className="max-w-[900px] mx-auto px-4 sm:px-6 py-8">
+            <div className="h-10 w-28 bg-surface-2 rounded mb-6 animate-pulse" />
+            <div className="h-52 rounded-2xl bg-surface-2 animate-pulse" />
+          </div>
+        </main>
+      </>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <>
+        <Navbar />
+        <main className="pt-[62px] min-h-screen bg-base">
+          <div className="max-w-[900px] mx-auto px-4 sm:px-6 py-16 text-center">
+            <p className="text-[16px] font-semibold text-ink">{loadError}</p>
+          </div>
+        </main>
+      </>
+    );
+  }
+
+  const { posts, savedPosts = [], isOwn } = profileData;
+  const displayFollowers = editableUser.followers ?? 0;
   const displayFollowing = editableUser.following ?? 0;
 
   return (
     <>
-      <Navbar />
+      <Navbar currentUserData={isOwn ? editableUser : undefined} />
       <main className="pt-[62px] min-h-screen bg-base">
         <div className="max-w-[900px] mx-auto px-4 sm:px-6 py-8">
-
-          {/* Back button */}
           <button
             type="button"
             onClick={() => router.back()}
@@ -105,45 +262,29 @@ export default function ProfilePage() {
             Back
           </button>
 
-          {/* Profile Header */}
           <div className="p-2 sm:p-3 mb-6 border-b border-border-soft">
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-
-              {/* Avatar */}
               <div className="flex-shrink-0">
                 <div
-                    className={[
-                      "relative w-24 h-24 sm:w-28 sm:h-28 rounded-full flex items-center justify-center text-3xl sm:text-4xl font-bold text-white bg-gradient-to-br",
-                      editableUser.avatarGradient,
-                    ].join(" ")}
-                    style={{
-                      boxShadow: "0 0 0 2px var(--bg-base), 0 0 0 4px var(--border-soft)",
-                    }}
-                  >
-                    {editableUser.avatarUrl ? (
-                      <Image
-                        src={editableUser.avatarUrl}
-                        alt={editableUser.displayName}
-                        fill
-                        sizes="112px"
-                        className="object-cover rounded-full"
-                      />
-                    ) : (
-                      editableUser.avatarInitial
-                    )}
-                  </div>
+                  className={[
+                    "relative w-24 h-24 sm:w-28 sm:h-28 rounded-full flex items-center justify-center text-3xl sm:text-4xl font-bold text-white bg-gradient-to-br",
+                    editableUser.avatarGradient || getAvatarGradient(editableUser.id),
+                  ].join(" ")}
+                  style={{ boxShadow: "0 0 0 2px var(--bg-base), 0 0 0 4px var(--border-soft)" }}
+                >
+                  {editableUser.avatarUrl ? (
+                    <Image src={editableUser.avatarUrl} alt={editableUser.displayName} fill sizes="112px" className="object-cover rounded-full" />
+                  ) : (
+                    editableUser.avatarInitial
+                  )}
                 </div>
+              </div>
 
-              {/* Info */}
               <div className="flex-1 min-w-0 text-center sm:text-left">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-3">
                   <div className="flex items-center justify-center sm:justify-start gap-2">
-                    <h1 className="text-[22px] sm:text-[24px] font-bold text-ink leading-tight">
-                      {editableUser.username}
-                    </h1>
-                    {editableUser.isVerified && (
-                      <BadgeCheck size={22} className="text-ink-2 fill-ink-3 stroke-base" />
-                    )}
+                    <h1 className="text-[22px] sm:text-[24px] font-bold text-ink leading-tight">{editableUser.username}</h1>
+                    {editableUser.isVerified && <BadgeCheck size={22} className="text-ink-2 fill-ink-3 stroke-base" />}
                   </div>
                   <div className="flex items-center justify-center sm:justify-start gap-2">
                     {isOwn ? (
@@ -156,47 +297,31 @@ export default function ProfilePage() {
                         >
                           <Settings size={16} />
                         </button>
-                      </>
-                    ) : (
-                      <>
                         <button
                           type="button"
-                          onClick={() => setFollowing((f) => !f)}
-                          className={[
-                            "flex items-center gap-1.5 text-[14px] font-semibold px-5 py-1.5 rounded-xl transition-all",
-                            following
-                              ? "bg-surface-2 border border-border-mid text-ink hover:bg-surface-3"
-                              : "bg-ink hover:opacity-90 text-base",
-                          ].join(" ")}
+                          onClick={() => void handleLogout()}
+                          className="w-9 h-9 rounded-xl bg-surface-2 text-ink-2 flex items-center justify-center hover:text-ink hover:bg-surface-3 transition-colors"
+                          title="Log out"
                         >
-                          {following ? <UserCheck size={15} /> : <UserPlus size={15} />}
-                          {following ? "Following" : "Follow"}
-                        </button>
-                        <button
-                          type="button"
-                          className="flex items-center gap-1.5 text-[14px] font-semibold bg-surface-2 border border-border-mid text-ink px-4 py-1.5 rounded-xl hover:bg-surface-3 transition-all"
-                        >
-                          <MessageCircle size={15} />
-                          Message
+                          <LogOut size={16} />
                         </button>
                       </>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
-                {/* Stats Row */}
                 <div className="flex items-center justify-center sm:justify-start gap-6 mb-4">
-                  <div className="text-center sm:text-left cursor-pointer hover:opacity-80 transition-opacity">
+                  <div className="text-center sm:text-left">
                     <p className="text-[18px] font-bold text-ink leading-tight">{editableUser.posts ?? posts.length}</p>
                     <p className="text-[13px] text-ink-3">posts</p>
                   </div>
-                  <div className="text-center sm:text-left cursor-pointer hover:opacity-80 transition-opacity">
+                  <div className="text-center sm:text-left">
                     <p className="text-[18px] font-bold text-ink leading-tight">
                       {displayFollowers >= 1000 ? (displayFollowers / 1000).toFixed(1) + "k" : displayFollowers}
                     </p>
                     <p className="text-[13px] text-ink-3">followers</p>
                   </div>
-                  <div className="text-center sm:text-left cursor-pointer hover:opacity-80 transition-opacity">
+                  <div className="text-center sm:text-left">
                     <p className="text-[18px] font-bold text-ink leading-tight">
                       {displayFollowing >= 1000 ? (displayFollowing / 1000).toFixed(1) + "k" : displayFollowing}
                     </p>
@@ -204,12 +329,10 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
-                {/* Display name & bio */}
                 <p className="text-[15px] font-semibold text-ink">{editableUser.displayName}</p>
-                {editableUser.bio && (
+                {editableUser.bio ? (
                   <p className="text-[14px] text-ink-3 mt-1 leading-relaxed">{editableUser.bio}</p>
-                )}
-                {!editableUser.bio && (
+                ) : (
                   <p className="text-[14px] text-ink-3 mt-1 italic">
                     {isOwn ? "Add a bio to tell people about yourself." : "No bio yet."}
                   </p>
@@ -218,37 +341,33 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* Tabs */}
           <div className="flex border-b border-border-soft mb-6">
             <button
               type="button"
               onClick={() => setActiveTab("posts")}
               className={[
                 "flex items-center gap-2 px-5 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all",
-                activeTab === "posts"
-                  ? "border-brand text-brand"
-                  : "border-transparent text-ink-3 hover:text-ink-3",
+                activeTab === "posts" ? "border-brand text-brand" : "border-transparent text-ink-3 hover:text-ink-3",
               ].join(" ")}
             >
               <Grid3X3 size={16} />
               Posts
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("saved")}
-              className={[
-                "flex items-center gap-2 px-5 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all",
-                         activeTab === "saved"
-                  ? "border-brand text-brand"
-                  : "border-transparent text-ink-3 hover:text-ink-3",
-              ].join(" ")}
-            >
-              <Bookmark size={16} />
-              Saved
-            </button>
+            {isOwn ? (
+              <button
+                type="button"
+                onClick={() => setActiveTab("saved")}
+                className={[
+                  "flex items-center gap-2 px-5 py-3 text-[13px] font-semibold border-b-2 -mb-px transition-all",
+                  activeTab === "saved" ? "border-brand text-brand" : "border-transparent text-ink-3 hover:text-ink-3",
+                ].join(" ")}
+              >
+                <Bookmark size={16} />
+                Saved
+              </button>
+            ) : null}
           </div>
 
-          {/* Posts Grid */}
           {activeTab === "posts" && (
             <>
               {posts.length > 0 ? (
@@ -259,7 +378,7 @@ export default function ProfilePage() {
                       className="aspect-square bg-surface-2 rounded-xl overflow-hidden relative cursor-pointer group transition-colors"
                       onClick={() => setActivePost(post)}
                     >
-                      {post.mediaType === "image" ? (
+                      {post.mediaType === "image" && post.mediaUrl ? (
                         <Image
                           src={post.mediaUrl}
                           alt={post.mediaLabel}
@@ -276,7 +395,6 @@ export default function ProfilePage() {
                           playsInline
                         />
                       )}
-                      {/* Hover overlay */}
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors rounded-xl flex items-center justify-center gap-4 opacity-0 group-hover:opacity-100">
                         <div className="flex items-center gap-1.5 text-white text-[14px] font-bold">
                           <Heart size={18} fill="white" />
@@ -291,7 +409,7 @@ export default function ProfilePage() {
                   ))}
                 </div>
               ) : (
-                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="flex flex-col items-center justify-center py-20 text-center">
                   <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center mb-4">
                     <ImageIcon size={28} className="text-ink-3" />
                   </div>
@@ -304,20 +422,52 @@ export default function ProfilePage() {
             </>
           )}
 
-          {activeTab === "saved" && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center mb-4">
-                <Bookmark size={28} className="text-ink-3" />
-              </div>
-              <p className="text-[16px] font-semibold text-ink mb-1">
-                {isOwn ? "No saved posts yet" : "Private collection"}
-              </p>
-              <p className="text-[14px] text-ink-3">
-                {isOwn
-                  ? "Save posts you love and they'll appear here."
-                  : "Only this person can see their saved posts."}
-              </p>
-            </div>
+          {isOwn && activeTab === "saved" && (
+            <>
+              {isSavedLoading ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={`saved-skel-${index}`} className="aspect-square bg-surface-2 rounded-xl animate-pulse" />
+                  ))}
+                </div>
+              ) : savedPosts.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
+                  {savedPosts.map((post) => (
+                    <div
+                      key={`saved-${post.id}`}
+                      className="aspect-square bg-surface-2 rounded-xl overflow-hidden relative cursor-pointer group transition-colors"
+                      onClick={() => setActivePost(post)}
+                    >
+                      {post.mediaType === "image" && post.mediaUrl ? (
+                        <Image
+                          src={post.mediaUrl}
+                          alt={post.mediaLabel}
+                          fill
+                          sizes="(max-width: 640px) 50vw, 280px"
+                          className="object-cover group-hover:scale-110 transition-transform duration-300"
+                        />
+                      ) : (
+                        <video
+                          src={post.mediaUrl}
+                          poster={post.thumbnailUrl}
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                          muted
+                          playsInline
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center mb-4">
+                    <Bookmark size={28} className="text-ink-3" />
+                  </div>
+                  <p className="text-[16px] font-semibold text-ink mb-1">No saved posts yet</p>
+                  <p className="text-[14px] text-ink-3">Save posts you love and they&apos;ll appear here.</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>
@@ -326,12 +476,7 @@ export default function ProfilePage() {
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         user={editableUser}
-        onSave={(nextUser) => {
-          setEditableUser((prev) => ({
-            ...prev,
-            ...nextUser,
-          }));
-        }}
+        onSave={persistProfile}
       />
       <PostModal post={activePost} onClose={() => setActivePost(null)} />
     </>
