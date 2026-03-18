@@ -50,3 +50,8 @@ src/generated/prisma
 Dockerfile
 .dockerignore
 /prisma/migrations
+
+
+# tsc outpues
+tsc_output_2.txt
+tsc_output.txt

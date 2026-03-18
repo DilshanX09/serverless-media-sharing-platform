@@ -8,6 +8,12 @@ type ServerEvents = {
     liked: boolean;
     totalLikes: number;
   }) => void;
+  "social:comment:like:toggled": (payload: {
+    postId: string;
+    commentId: string;
+    liked: boolean;
+    totalLikes: number;
+  }) => void;
   "conversation:comment:new": (payload: {
     postId: string;
     commentId: string;

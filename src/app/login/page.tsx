@@ -1,5 +1,7 @@
 "use client";
 
+import axios from "axios";
+
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,21 +18,18 @@ export default function LoginPage() {
     setIsLoading(true);
     setError("");
 
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-
-    if (!response.ok) {
-      const data = (await response.json().catch(() => ({}))) as { error?: string };
+    try {
+      await axios.post(
+        "/api/auth/login",
+        { email, password },
+        { withCredentials: true }
+      );
       setIsLoading(false);
-      setError(data.error ?? "Unable to log in. Please try again.");
-      return;
+      router.push("/");
+    } catch (err: any) {
+      setIsLoading(false);
+      setError(err.response?.data?.error || "Unable to log in. Please try again.");
     }
-
-    setIsLoading(false);
-    router.push("/");
   };
 
   return (

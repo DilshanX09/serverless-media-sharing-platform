@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/routeAuth";
 import { cacheDelete } from "@/lib/cache";
 import { cacheKeys } from "@/lib/cacheKeys";
+import { emitCommentLikeToggled } from "@/lib/socketServer";
 
 interface ToggleCommentLikeBody {
   commentId?: unknown;
@@ -59,5 +60,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const totalLikes = await prisma.commentLike.count({ where: { commentId } });
   await cacheDelete(cacheKeys.comments(comment.postId));
+
+  emitCommentLikeToggled({
+    postId: comment.postId,
+    commentId,
+    liked,
+    totalLikes,
+  });
+
   return NextResponse.json({ commentId, liked, totalLikes }, { status: 200 });
 }

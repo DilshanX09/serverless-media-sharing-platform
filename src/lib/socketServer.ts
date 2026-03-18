@@ -10,6 +10,12 @@ type ServerToClientEvents = {
     liked: boolean;
     totalLikes: number;
   }) => void;
+  "social:comment:like:toggled": (payload: {
+    postId: string;
+    commentId: string;
+    liked: boolean;
+    totalLikes: number;
+  }) => void;
   "social:follow:notification": (payload: {
     actorUserId: string;
     targetUserId: string;
@@ -94,6 +100,19 @@ export function emitLikeToggled(payload: {
   }
   io.to(`post:${payload.postId}`).emit("social:like:toggled", payload);
   io.to(`user:${payload.ownerUserId}`).emit("social:like:toggled", payload);
+}
+
+export function emitCommentLikeToggled(payload: {
+  postId: string;
+  commentId: string;
+  liked: boolean;
+  totalLikes: number;
+}): void {
+  const io = getIO();
+  if (!io) {
+    return;
+  }
+  io.to(`post:${payload.postId}`).emit("social:comment:like:toggled", payload);
 }
 
 export function emitFollowNotification(payload: {

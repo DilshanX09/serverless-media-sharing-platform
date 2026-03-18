@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BadgeCheck } from "lucide-react";
 import Avatar from "@/components/ui/Avatar";
+import axios from "axios";
 import type { SuggestedUser, User } from "@/types";
 
 interface SidebarProps {
@@ -29,13 +30,11 @@ export default function Sidebar({
   const handleFollow = async (targetUserId: string) => {
     try {
       setIsSubmittingFor(targetUserId);
-      const response = await fetch("/api/social/follows/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ targetUserId }),
-      });
-      if (!response.ok) return;
+      await axios.post(
+        "/api/social/follows/toggle",
+        { targetUserId },
+        { withCredentials: true }
+      );
       onFollowedSuggestion?.(targetUserId);
     } finally {
       setIsSubmittingFor(null);

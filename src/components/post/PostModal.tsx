@@ -10,6 +10,8 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import axios from "axios";
+import { getSocketClient } from "@/lib/socketClient";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Heart,
@@ -96,7 +98,7 @@ export default function PostModal({
     setIsEditModalOpen(false);
     setEditCaption(post.caption);
     setIsCaptionExpanded(false);
-  }, [post, post?.id]);
+  }, [post?.id]);
 
   useEffect(() => {
     if (!post) return;
@@ -105,7 +107,6 @@ export default function PostModal({
     setLikeCount(post.likes);
     setCommentCount(post.comments);
   }, [
-    post,
     post?.comments,
     post?.id,
     post?.isLiked,
@@ -132,19 +133,13 @@ export default function PostModal({
           return cachedTotal;
         }
       }
-
-      const response = await fetch(
-        `/api/social/comments?postId=${encodeURIComponent(activePostId)}`,
-        {
-          credentials: "include",
-        },
-      );
-      if (!response.ok) {
-        setIsCommentsLoading(false);
-        return null;
-      }
-      const data = (await response.json()) as { comments: Comment[] };
-      modalCommentsCache.set(activePostId, {
+      try {
+        const response = await axios.get(
+          `/api/social/comments?postId=${encodeURIComponent(activePostId)}`,
+          { withCredentials: true }
+        );
+        const data = response.data as { comments: Comment[] };
+        modalCommentsCache.set(activePostId, {
         comments: data.comments,
         cachedAt: Date.now(),
       });
@@ -156,6 +151,10 @@ export default function PostModal({
       onPostUpdated?.(activePostId, { comments: total });
       setIsCommentsLoading(false);
       return total;
+      } catch {
+        setIsCommentsLoading(false);
+        return null;
+      }
     },
     [onPostUpdated],
   );
@@ -163,7 +162,39 @@ export default function PostModal({
   useEffect(() => {
     if (!post) return;
     void refreshComments(post.id);
-  }, [post, post?.id, refreshComments]);
+  }, [post?.id, refreshComments]);
+
+  useEffect(() => {
+    if (!post?.id) return;
+    let mounted = true;
+    const setupSocket = async () => {
+      const socket = await getSocketClient();
+      if (!mounted) return;
+      socket.emit("room:post:join", { postId: post.id });
+
+      const onLike = (payload: { postId: string; actorUserId: string; totalLikes: number }) => {
+        if (payload.postId === post.id && payload.actorUserId !== currentUserId) {
+          setLikeCount(payload.totalLikes);
+        }
+      };
+
+      const onComment = (payload: { postId: string; actorUserId: string }) => {
+        if (payload.postId === post.id && payload.actorUserId !== currentUserId) {
+          void refreshComments(post.id);
+        }
+      };
+
+      socket.on("social:like:toggled", onLike);
+      socket.on("conversation:comment:new", onComment);
+
+      return () => {
+        socket.off("social:like:toggled", onLike);
+        socket.off("conversation:comment:new", onComment);
+      };
+    };
+    void setupSocket();
+    return () => { mounted = false; };
+  }, [post?.id, currentUserId, refreshComments]);
 
   const appendReplyByParentId = useCallback(
     (nodes: Comment[], parentId: string, reply: Comment): Comment[] => {
@@ -207,20 +238,21 @@ export default function PostModal({
   useEffect(() => {
     let mounted = true;
     const loadCurrentUser = async () => {
-      const response = await fetch("/api/auth/me", { credentials: "include" });
-      if (!response.ok) return;
-      const data = (await response.json()) as {
-        user: {
-          id: string;
-          username: string;
-          displayName: string;
-          avatarBlobUrl?: string | null;
-          bio?: string | null;
-          email?: string | null;
+      try {
+        const response = await axios.get("/api/auth/me", { withCredentials: true });
+        const data = response.data as {
+          user: {
+            id: string;
+            username: string;
+            displayName: string;
+            avatarBlobUrl?: string | null;
+            bio?: string | null;
+            email?: string | null;
+          };
         };
-      };
-      if (!mounted) return;
-      setCurrentUser(mapUser(data.user));
+        if (!mounted) return;
+        setCurrentUser(mapUser(data.user));
+      } catch {}
     };
     loadCurrentUser();
     return () => {
@@ -315,15 +347,14 @@ export default function PostModal({
   const handleDeletePost = async () => {
     if (!isOwner || isDeleteSubmitting) return;
     setIsDeleteSubmitting(true);
-    const response = await fetch(`/api/posts/${post.id}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-    setIsDeleteSubmitting(false);
-    if (!response.ok) return;
-    setIsDeleteConfirmOpen(false);
-    onPostDeleted?.(post.id);
-    onClose();
+    try {
+      await axios.delete(`/api/posts/${post.id}`, { withCredentials: true });
+      setIsDeleteConfirmOpen(false);
+      onPostDeleted?.(post.id);
+      onClose();
+    } finally {
+      setIsDeleteSubmitting(false);
+    }
   };
 
   const handleUpdatePost = async () => {
@@ -331,21 +362,22 @@ export default function PostModal({
     const trimmed = editCaption.trim();
     if (trimmed === post.caption.trim()) return;
     setIsUpdateSubmitting(true);
-    const response = await fetch(`/api/posts/${post.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ caption: trimmed }),
-    });
-    setIsUpdateSubmitting(false);
-    if (!response.ok) return;
-    onPostUpdated?.(post.id, {
-      caption: trimmed,
-      tags: trimmed.match(/#[A-Za-z0-9_]+/g) ?? [],
-    });
-    setIsEditModalOpen(false);
-    onClose();
-    router.refresh();
+    try {
+      await axios.patch(
+        `/api/posts/${post.id}`,
+        { caption: trimmed },
+        { withCredentials: true }
+      );
+      onPostUpdated?.(post.id, {
+        caption: trimmed,
+        tags: trimmed.match(/#[A-Za-z0-9_]+/g) ?? [],
+      });
+      setIsEditModalOpen(false);
+      onClose();
+      router.refresh();
+    } finally {
+      setIsUpdateSubmitting(false);
+    }
   };
 
   const handleSharePost = async () => {
@@ -375,14 +407,12 @@ export default function PostModal({
       likes: optimisticLikes,
     });
     try {
-      const response = await fetch("/api/social/likes/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ postId: post.id }),
-      });
-      if (!response.ok) throw new Error("Like failed");
-      const data = (await response.json()) as {
+      const response = await axios.post(
+        "/api/social/likes/toggle",
+        { postId: post.id },
+        { withCredentials: true }
+      );
+      const data = response.data as {
         liked: boolean;
         totalLikes: number;
       };
@@ -405,14 +435,12 @@ export default function PostModal({
     setSaved(optimisticSaved);
     onPostUpdated?.(post.id, { isSaved: optimisticSaved });
     try {
-      const response = await fetch("/api/social/saved/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ postId: post.id }),
-      });
-      if (!response.ok) throw new Error("Save failed");
-      const data = (await response.json()) as { saved: boolean };
+      const response = await axios.post(
+        "/api/social/saved/toggle",
+        { postId: post.id },
+        { withCredentials: true }
+      );
+      const data = response.data as { saved: boolean };
       setSaved(data.saved);
       onPostUpdated?.(post.id, { isSaved: data.saved });
     } catch {
@@ -426,18 +454,17 @@ export default function PostModal({
   const submitComment = async () => {
     const trimmed = commentText.trim();
     if (!trimmed || !post) return;
-    const response = await fetch("/api/social/comments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ postId: post.id, content: trimmed }),
-    });
-    if (!response.ok) return;
-    const data = (await response.json()) as {
-      comment?: Comment;
-      parentId?: string | null;
-      totalComments?: number;
-    };
+    try {
+      const response = await axios.post(
+        "/api/social/comments",
+        { postId: post.id, content: trimmed },
+        { withCredentials: true }
+      );
+      const data = response.data as {
+        comment?: Comment;
+        parentId?: string | null;
+        totalComments?: number;
+      };
     if (typeof data.totalComments === "number") {
       setCommentCount(data.totalComments);
       onPostUpdated?.(post.id, { comments: data.totalComments });
@@ -467,6 +494,7 @@ export default function PostModal({
         });
       }
     }
+    } catch {}
     setCommentText("");
     setIsEmojiOpen(false);
   };
@@ -499,12 +527,28 @@ export default function PostModal({
 
         <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col md:border-l border-border-soft h-full min-h-0 overflow-hidden">
           <div className="flex items-center gap-3 px-4 py-3.5 md:border-b border-border-soft flex-shrink-0">
-            <Avatar user={post.user} size="sm" ring />
+            <Avatar 
+              user={post.user} 
+              size="sm" 
+              ring 
+              onClick={() => {
+                onClose();
+                router.push(`/profile/@${post.user.username}`);
+              }}
+              className="cursor-pointer"
+            />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-[15px] font-semibold text-ink">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    router.push(`/profile/@${post.user.username}`);
+                  }}
+                  className="text-[15px] font-semibold text-ink hover:text-brand transition-colors text-left"
+                >
                   {post.user.username}
-                </span>
+                </button>
                 {post.user.isVerified && (
                   <BadgeCheck
                     size={15}
@@ -582,6 +626,7 @@ export default function PostModal({
                 src={post.mediaUrl}
                 alt={post.mediaLabel}
                 fill
+                priority={true}
                 sizes="100vw"
                 className="object-contain"
                 onLoad={handleImageLoaded}
@@ -623,6 +668,10 @@ export default function PostModal({
             <p className="text-[14px] text-ink-2 leading-relaxed">
               <button
                 type="button"
+                onClick={() => {
+                  onClose();
+                  router.push(`/profile/@${post.user.username}`);
+                }}
                 className="font-semibold text-ink mr-1.5 hover:text-brand transition-colors"
               >
                 {post.user.username}
@@ -921,6 +970,7 @@ const MemoizedMediaPane = memo(
             alt={post.mediaLabel}
             fill
             sizes="(max-width: 768px) 100vw, 980px"
+            priority={true}
             className="object-contain"
             onLoad={onImageLoaded}
             onError={onImageLoaded}

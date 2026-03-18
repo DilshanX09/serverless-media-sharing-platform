@@ -1,5 +1,7 @@
 "use client";
 
+import axios from "axios";
+
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter, useParams } from "next/navigation";
@@ -36,24 +38,19 @@ async function uploadAvatarFromBlobUrl(blobUrl: string): Promise<string> {
   const extension = blob.type.includes("png") ? "png" : blob.type.includes("webp") ? "webp" : "jpg";
   const fileName = `avatar-${Date.now()}.${extension}`;
 
-  const sasResponse = await fetch("/api/upload/sas", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ fileName, mediaType: "IMAGE" }),
-  });
-  if (!sasResponse.ok) throw new Error("Failed to create avatar upload URL.");
-  const sasData = (await sasResponse.json()) as { uploadUrl: string; blobUrl: string };
+  const sasResponse = await axios.post(
+    "/api/upload/sas",
+    { fileName, mediaType: "IMAGE" },
+    { withCredentials: true }
+  );
+  const sasData = sasResponse.data as { uploadUrl: string; blobUrl: string };
 
-  const uploadResponse = await fetch(sasData.uploadUrl, {
-    method: "PUT",
+  await axios.put(sasData.uploadUrl, blob, {
     headers: {
       "x-ms-blob-type": "BlockBlob",
       "Content-Type": blob.type || "application/octet-stream",
     },
-    body: blob,
   });
-  if (!uploadResponse.ok) throw new Error("Avatar upload failed.");
   return sasData.blobUrl;
 }
 
@@ -87,20 +84,21 @@ export default function ProfilePage() {
           setEditableUser(parsed.user);
           setIsLoading(false);
         }
-        const response = await fetch(`/api/profile/${encodeURIComponent(rawUsername)}`, { credentials: "include" });
-        if (response.status === 401) {
-          router.replace("/login");
-          return;
-        }
-        if (!response.ok) {
+        try {
+          const response = await axios.get(`/api/profile/${encodeURIComponent(rawUsername)}`, { withCredentials: true });
+          const data = response.data as ProfileResponse;
+          if (!mounted) return;
+          setProfileData(data);
+          setEditableUser(data.user);
+          window.sessionStorage.setItem(profileCacheKey(rawUsername), JSON.stringify(data));
+        } catch (error: any) {
+          if (error.response?.status === 401) {
+            router.replace("/login");
+            return;
+          }
           setLoadError("Profile not found.");
           return;
         }
-        const data = (await response.json()) as ProfileResponse;
-        if (!mounted) return;
-        setProfileData(data);
-        setEditableUser(data.user);
-        window.sessionStorage.setItem(profileCacheKey(rawUsername), JSON.stringify(data));
       } catch {
         if (!mounted) return;
         setLoadError("Unable to load profile.");
@@ -120,14 +118,16 @@ export default function ProfilePage() {
     const loadSaved = async () => {
       setIsSavedLoading(true);
       try {
-        const response = await fetch(`/api/profile/${encodeURIComponent(rawUsername)}?includeSaved=1`, { credentials: "include" });
-        if (response.status === 401) {
-          router.replace("/login");
-          return;
+        try {
+          const response = await axios.get(`/api/profile/${encodeURIComponent(rawUsername)}?includeSaved=1`, { withCredentials: true });
+          if (!active) return;
+          const data = response.data as ProfileResponse;
+          setProfileData((prev) => (prev ? { ...prev, savedPosts: data.savedPosts ?? [] } : prev));
+        } catch (error: any) {
+          if (error.response?.status === 401) {
+            router.replace("/login");
+          }
         }
-        if (!response.ok || !active) return;
-        const data = (await response.json()) as ProfileResponse;
-        setProfileData((prev) => (prev ? { ...prev, savedPosts: data.savedPosts ?? [] } : prev));
       } finally {
         if (active) setIsSavedLoading(false);
       }
@@ -147,23 +147,13 @@ export default function ProfilePage() {
       avatarBlobUrl = await uploadAvatarFromBlobUrl(nextUser.avatarUrl);
     }
 
-    const response = await fetch("/api/profile/me", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        displayName: nextUser.displayName,
-        bio: nextUser.bio,
-        ...(avatarBlobUrl ? { avatarBlobUrl } : {}),
-      }),
-    });
+    const response = await axios.patch("/api/profile/me", {
+      displayName: nextUser.displayName,
+      bio: nextUser.bio,
+      ...(avatarBlobUrl ? { avatarBlobUrl } : {}),
+    }, { withCredentials: true });
 
-    if (!response.ok) {
-      setIsSavingProfile(false);
-      throw new Error("Failed to persist profile update");
-    }
-
-    const data = (await response.json()) as {
+    const data = response.data as {
       profile: {
         displayName: string;
         bio?: string | null;
@@ -209,10 +199,7 @@ export default function ProfilePage() {
   };
 
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "include",
-    });
+    await axios.post("/api/auth/logout", {}, { withCredentials: true });
     router.push("/login");
     router.refresh();
   };

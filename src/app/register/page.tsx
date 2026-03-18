@@ -1,5 +1,7 @@
 "use client";
 
+import axios from "axios";
+
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -23,21 +25,18 @@ export default function RegisterPage() {
     setError("");
     setIsLoading(true);
 
-    const response = await fetch("/api/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, username, password, displayName: username }),
-    });
-
-    if (!response.ok) {
-      const data = (await response.json().catch(() => ({}))) as { error?: string };
+    try {
+      await axios.post(
+        "/api/auth/register",
+        { email, username, password, displayName: username },
+        { withCredentials: true }
+      );
       setIsLoading(false);
-      setError(data.error ?? "Unable to create account. Please try again.");
-      return;
+      router.push("/");
+    } catch (err: any) {
+      setIsLoading(false);
+      setError(err.response?.data?.error || "Unable to create account. Please try again.");
     }
-
-    setIsLoading(false);
-    router.push("/");
   };
 
   return (

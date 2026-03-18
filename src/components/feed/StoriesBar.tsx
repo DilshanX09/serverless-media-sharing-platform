@@ -1,5 +1,7 @@
 "use client";
 
+import axios from "axios";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { Loader2, Maximize2, Minimize2, Pause, Play, Plus, Trash2, UserRound, Volume2, VolumeX } from "lucide-react";
@@ -214,32 +216,25 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
     setIsUploadingStory(true);
     try {
       const mediaType = isVideo ? "VIDEO" : "IMAGE";
-      const sasResponse = await fetch("/api/upload/sas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ fileName: file.name, mediaType }),
-      });
-      if (!sasResponse.ok) throw new Error("Failed to get upload URL");
-      const sasData = (await sasResponse.json()) as { uploadUrl: string; blobUrl: string };
+      const sasResponse = await axios.post(
+        "/api/upload/sas",
+        { fileName: file.name, mediaType },
+        { withCredentials: true }
+      );
+      const sasData = sasResponse.data as { uploadUrl: string; blobUrl: string };
 
-      const uploadResponse = await fetch(sasData.uploadUrl, {
-        method: "PUT",
+      await axios.put(sasData.uploadUrl, file, {
         headers: {
           "x-ms-blob-type": "BlockBlob",
           "Content-Type": file.type || "application/octet-stream",
         },
-        body: file,
       });
-      if (!uploadResponse.ok) throw new Error("Upload failed");
 
-      const createResponse = await fetch("/api/stories/active", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ blobUrl: sasData.blobUrl, mediaType }),
-      });
-      if (!createResponse.ok) throw new Error("Story create failed");
+      await axios.post(
+        "/api/stories/active",
+        { blobUrl: sasData.blobUrl, mediaType },
+        { withCredentials: true }
+      );
       onStoryCreated?.();
     } finally {
       setIsUploadingStory(false);
@@ -262,13 +257,10 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
     if (!storyDeleteTarget) return;
     setIsDeletingStory(true);
     try {
-      const response = await fetch("/api/stories/active", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ storyId: storyDeleteTarget.id }),
+      await axios.delete("/api/stories/active", {
+        data: { storyId: storyDeleteTarget.id },
+        withCredentials: true,
       });
-      if (!response.ok) return;
       closeStory();
       setStoryDeleteTarget(null);
       onStoryCreated?.();

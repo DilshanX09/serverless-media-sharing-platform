@@ -123,7 +123,7 @@ type DbCommentNode = {
   replies: DbCommentNode[];
 };
 
-function mapCommentNode(comment: DbCommentNode) {
+function mapCommentNode(comment: DbCommentNode): any {
   return {
     id: comment.id,
     user: mapUser(comment.author),

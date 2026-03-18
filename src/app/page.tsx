@@ -1,5 +1,7 @@
 "use client";
 
+import axios from "axios";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Navbar from "@/components/layout/Navbar";
@@ -38,37 +40,40 @@ export default function HomePage() {
   };
 
   const loadFeed = useCallback(async () => {
-    const response = await fetch("/api/feed", { credentials: "include" });
-    if (response.status === 401) {
-      const guestResponse = await fetch("/api/feed/public", { credentials: "include" });
-      if (guestResponse.ok) {
-        const guestData = (await guestResponse.json()) as { posts: Post[] };
-        setPosts(guestData.posts);
-        setFollowingPosts([]);
-        setStories([]);
-        setCurrentUser(null);
-        setSuggestedUsers([]);
-        setSearchableUsers([]);
-        setIsGuest(true);
-        setActiveFeedTab("forYou");
-        try {
-          window.sessionStorage.removeItem(FEED_CACHE_KEY);
-        } catch {}
-      }
-      return;
-    }
-    if (!response.ok) return;
-    const data = (await response.json()) as FeedResponse;
-    setPosts(data.posts);
-    setFollowingPosts(data.followingPosts ?? []);
-    setStories(data.stories);
-    setCurrentUser(data.currentUser);
-    setSuggestedUsers(data.suggestedUsers);
-    setSearchableUsers(data.searchableUsers);
-    setIsGuest(false);
     try {
-      window.sessionStorage.setItem(FEED_CACHE_KEY, JSON.stringify(data));
-    } catch {}
+      const response = await axios.get("/api/feed", { withCredentials: true });
+      const data = response.data as FeedResponse;
+      setPosts(data.posts);
+      setFollowingPosts(data.followingPosts ?? []);
+      setStories(data.stories);
+      setCurrentUser(data.currentUser);
+      setSuggestedUsers(data.suggestedUsers);
+      setSearchableUsers(data.searchableUsers);
+      setIsGuest(false);
+      try {
+        window.sessionStorage.setItem(FEED_CACHE_KEY, JSON.stringify(data));
+      } catch {}
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        try {
+          const guestResponse = await axios.get("/api/feed/public", { withCredentials: true });
+          const guestData = guestResponse.data as { posts: Post[] };
+          setPosts(guestData.posts);
+          setFollowingPosts([]);
+          setStories([]);
+          setCurrentUser(null);
+          setSuggestedUsers([]);
+          setSearchableUsers([]);
+          setIsGuest(true);
+          setActiveFeedTab("forYou");
+          try {
+            window.sessionStorage.removeItem(FEED_CACHE_KEY);
+          } catch {}
+        } catch {
+          // guest fetch failed
+        }
+      }
+    }
   }, []);
 
   useEffect(() => {

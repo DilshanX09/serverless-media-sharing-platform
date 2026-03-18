@@ -1,5 +1,10 @@
 "use client";
 
+import axios from "axios";
+
+import { getSocketClient } from "@/lib/socketClient";
+
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Heart, Send, Smile } from "lucide-react";
@@ -44,6 +49,7 @@ export default function CommentItem({
   onReplyCreated,
   onCommentDeleted,
 }: CommentItemProps) {
+  const router = useRouter();
   const [liked, setLiked] = useState(comment.isLiked ?? false);
   const [likeCount, setLikeCount] = useState(comment.likes);
   const [repliesOpen, setRepliesOpen] = useState(false);
@@ -61,7 +67,24 @@ export default function CommentItem({
 
   useEffect(() => {
     setIsMounted(true);
-  }, []);
+    let mounted = true;
+    const setupSocket = async () => {
+      const socket = await getSocketClient();
+      if (!mounted) return;
+      
+      const onCommentLike = (payload: any) => {
+        if (payload.commentId === comment.id) {
+          setLikeCount(payload.totalLikes);
+        }
+      };
+      socket.on("social:comment:like:toggled", onCommentLike);
+      return () => {
+        socket.off("social:comment:like:toggled", onCommentLike);
+      };
+    };
+    void setupSocket();
+    return () => { mounted = false; };
+  }, [comment.id]);
 
   useEffect(() => {
     if (!replyEmojiOpen) return;
@@ -85,14 +108,12 @@ export default function CommentItem({
       setLiked(optimisticLiked);
       setLikeCount(optimisticCount);
       try {
-        const response = await fetch("/api/social/comments/likes/toggle", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ commentId: comment.id }),
-        });
-        if (!response.ok) throw new Error("toggle failed");
-        const data = (await response.json()) as { liked: boolean; totalLikes: number };
+        const response = await axios.post(
+          "/api/social/comments/likes/toggle",
+          { commentId: comment.id },
+          { withCredentials: true }
+        );
+        const data = response.data;
         setLiked(data.liked);
         setLikeCount(data.totalLikes);
       } catch {
@@ -108,18 +129,16 @@ export default function CommentItem({
     if (!trimmed || !currentUser || isReplySubmitting) return;
     setIsReplySubmitting(true);
     try {
-      const response = await fetch("/api/social/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
+      const response = await axios.post(
+        "/api/social/comments",
+        {
           postId,
           parentId: comment.id,
           content: trimmed,
-        }),
-      });
-      if (!response.ok) return;
-      const data = (await response.json()) as { comment?: Comment; totalComments?: number };
+        },
+        { withCredentials: true }
+      );
+      const data = response.data;
       if (typeof data.totalComments === "number") onReplyCreated?.(data.totalComments);
       if (data.comment) {
         setLocalReplies((prev) => [...prev, data.comment as Comment]);
@@ -143,14 +162,11 @@ export default function CommentItem({
     if (!currentUser || currentUser.id !== comment.user.id || isDeleteSubmitting) return;
     setIsDeleteSubmitting(true);
     try {
-      const response = await fetch("/api/social/comments", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ commentId: comment.id }),
+      const response = await axios.delete("/api/social/comments", {
+        data: { commentId: comment.id },
+        withCredentials: true,
       });
-      if (!response.ok) return;
-      const data = (await response.json()) as { totalComments: number };
+      const data = response.data;
       onCommentDeleted?.({
         commentId: comment.id,
         parentId,
@@ -165,12 +181,18 @@ export default function CommentItem({
   return (
     <div className={depth > 0 ? "ml-9 mt-3" : ""}>
       <div className="flex gap-2.5">
-        <Avatar user={comment.user} size="xs" />
+        <Avatar 
+          user={comment.user} 
+          size="xs" 
+          onClick={() => router.push(`/profile/@${comment.user.username}`)}
+          className="cursor-pointer"
+        />
         <div className="flex-1 min-w-0">
           <p className="text-[14px] text-ink-2 leading-relaxed">
             <button
               type="button"
-              className="font-semibold text-ink mr-1.5 hover:text-brand transition-colors"
+              onClick={() => router.push(`/profile/@${comment.user.username}`)}
+              className="font-semibold text-ink mr-1.5 hover:text-brand transition-colors text-left"
             >
               {comment.user.username}
             </button>
@@ -195,15 +217,13 @@ export default function CommentItem({
               <Heart size={13} strokeWidth={2} fill={liked ? "currentColor" : "none"} />
               {likeCount > 0 ? likeCount : ""}
             </button>
-            {depth === 0 && (
-              <button
-                type="button"
-                onClick={() => setReplyFormOpen((v) => !v)}
-                className="text-[13px] font-semibold text-ink-3 hover:text-ink transition-colors"
-              >
-                Reply
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setReplyFormOpen((v) => !v)}
+              className="text-[13px] font-semibold text-ink-3 hover:text-ink transition-colors"
+            >
+              Reply
+            </button>
             {currentUser?.id === comment.user.id ? (
               <button
                 type="button"
@@ -219,7 +239,7 @@ export default function CommentItem({
       </div>
 
       {/* Toggle replies */}
-      {depth === 0 && localReplies.length > 0 && (
+      {localReplies.length > 0 && (
         <button
           type="button"
           onClick={() => setRepliesOpen((v) => !v)}
@@ -231,7 +251,7 @@ export default function CommentItem({
       )}
 
       {/* Nested replies */}
-      {depth === 0 && repliesOpen && (
+      {repliesOpen && (
         <div className="ml-9 mt-1 border-l-2 border-border-soft pl-3 space-y-3">
           <AnimatePresence initial={false}>
             {localReplies.map((reply) => (

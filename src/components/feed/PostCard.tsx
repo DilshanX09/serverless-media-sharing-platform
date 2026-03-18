@@ -1,5 +1,7 @@
 "use client";
 
+import axios from "axios";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -104,14 +106,13 @@ export default function PostCard({
   const handleDeletePost = async () => {
     if (!isOwner || isDeleteSubmitting) return;
     setIsDeleteSubmitting(true);
-    const response = await fetch(`/api/posts/${post.id}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-    setIsDeleteSubmitting(false);
-    if (!response.ok) return;
-    setIsDeleteConfirmOpen(false);
-    onPostDeleted?.(post.id);
+    try {
+      await axios.delete(`/api/posts/${post.id}`, { withCredentials: true });
+      setIsDeleteConfirmOpen(false);
+      onPostDeleted?.(post.id);
+    } finally {
+      setIsDeleteSubmitting(false);
+    }
   };
 
   const handleUpdatePost = async () => {
@@ -119,20 +120,21 @@ export default function PostCard({
     const trimmed = editCaption.trim();
     if (trimmed === post.caption.trim()) return;
     setIsUpdateSubmitting(true);
-    const response = await fetch(`/api/posts/${post.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ caption: trimmed }),
-    });
-    setIsUpdateSubmitting(false);
-    if (!response.ok) return;
-    onPostUpdated?.(post.id, {
-      caption: trimmed,
-      tags: trimmed.match(/#[A-Za-z0-9_]+/g) ?? [],
-    });
-    setIsEditModalOpen(false);
-    router.refresh();
+    try {
+      await axios.patch(
+        `/api/posts/${post.id}`,
+        { caption: trimmed },
+        { withCredentials: true }
+      );
+      onPostUpdated?.(post.id, {
+        caption: trimmed,
+        tags: trimmed.match(/#[A-Za-z0-9_]+/g) ?? [],
+      });
+      setIsEditModalOpen(false);
+      router.refresh();
+    } finally {
+      setIsUpdateSubmitting(false);
+    }
   };
 
   const handleSharePost = async () => {
@@ -162,17 +164,12 @@ export default function PostCard({
       likes: optimisticLikes,
     });
     try {
-      const response = await fetch("/api/social/likes/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ postId: post.id }),
-      });
-      if (!response.ok) throw new Error("Failed like toggle");
-      const data = (await response.json()) as {
-        liked: boolean;
-        totalLikes: number;
-      };
+      const response = await axios.post(
+        "/api/social/likes/toggle",
+        { postId: post.id },
+        { withCredentials: true }
+      );
+      const data = response.data;
       setLiked(data.liked);
       setLikes(data.totalLikes);
       onPostUpdated?.(post.id, { isLiked: data.liked, likes: data.totalLikes });
@@ -192,14 +189,12 @@ export default function PostCard({
     setSaved(optimisticSaved);
     onPostUpdated?.(post.id, { isSaved: optimisticSaved });
     try {
-      const response = await fetch("/api/social/saved/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ postId: post.id }),
-      });
-      if (!response.ok) throw new Error("Failed save toggle");
-      const data = (await response.json()) as { saved: boolean };
+      const response = await axios.post(
+        "/api/social/saved/toggle",
+        { postId: post.id },
+        { withCredentials: true }
+      );
+      const data = response.data;
       setSaved(data.saved);
       onPostUpdated?.(post.id, { isSaved: data.saved });
     } catch {
@@ -316,6 +311,7 @@ export default function PostCard({
             alt={post.mediaLabel}
             className="w-full h-auto max-h-[68vh] sm:max-h-[78vh] object-contain group-hover:scale-[1.01] transition-transform duration-500"
             loading="lazy"
+            decoding="async"
             onLoad={() => setIsMediaLoading(false)}
             onError={() => setIsMediaLoading(false)}
           />
