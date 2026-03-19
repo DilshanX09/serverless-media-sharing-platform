@@ -5,9 +5,11 @@ import axios from "axios";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/Toast";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { showToast } = useToast();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,6 +21,7 @@ export default function RegisterPage() {
     e.preventDefault();
     if (password !== confirmPassword) {
       setError("Passwords do not match");
+      showToast("Passwords do not match", "error");
       return;
     }
 
@@ -32,10 +35,14 @@ export default function RegisterPage() {
         { withCredentials: true }
       );
       setIsLoading(false);
+      showToast("Account created! Welcome to mini.insta", "success");
       router.push("/");
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsLoading(false);
-      setError(err.response?.data?.error || "Unable to create account. Please try again.");
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      const msg = axiosErr.response?.data?.error || "Unable to create account. Please try again.";
+      setError(msg);
+      showToast(msg, "error");
     }
   };
 

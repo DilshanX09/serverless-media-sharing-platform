@@ -17,6 +17,7 @@ import {
   Upload,
   RefreshCw,
 } from "lucide-react";
+import { useToast } from "@/components/ui/Toast";
 
 interface CreatePostModalProps {
   isOpen: boolean;
@@ -56,6 +57,7 @@ export default function CreatePostModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const router = useRouter();
+  const { showToast } = useToast();
 
   const handleClose = useCallback(() => {
     if (media?.url) URL.revokeObjectURL(media.url);
@@ -89,11 +91,11 @@ export default function CreatePostModal({
     const isImage = file.type.startsWith("image/");
     const isVideo = file.type.startsWith("video/");
     if (!isImage && !isVideo) {
-      alert("Please select an image or video file.");
+      showToast("Please select an image or video file", "error");
       return;
     }
     if (initialType === "reel" && !isVideo) {
-      alert("Reels must be uploaded as video.");
+      showToast("Reels must be uploaded as video", "error");
       return;
     }
     if (media?.url) URL.revokeObjectURL(media.url);
@@ -106,7 +108,7 @@ export default function CreatePostModal({
       sizeLabel: formatBytes(file.size),
     });
     setStep("preview");
-  }, [initialType, media?.url]);
+  }, [initialType, media?.url, showToast]);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -191,9 +193,12 @@ export default function CreatePostModal({
       setStep("done");
       router.refresh();
       onPublished?.();
+      showToast("Post published successfully!", "success");
     } catch (error) {
       setStep("details");
-      setPublishError(error instanceof Error ? error.message : "Failed to publish post.");
+      const msg = error instanceof Error ? error.message : "Failed to publish post.";
+      setPublishError(msg);
+      showToast(msg, "error");
     }
   };
 

@@ -12,6 +12,7 @@ import twemoji from "twemoji";
 import type { Comment, User } from "@/types";
 import Avatar from "@/components/ui/Avatar";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 
 interface CommentItemProps {
   comment: Comment;
@@ -63,6 +64,7 @@ export default function CommentItem({
   const [isMounted, setIsMounted] = useState(false);
   const replyEmojiPickerRef = useRef<HTMLDivElement>(null);
   const replyInputRef = useRef<HTMLInputElement>(null);
+  const { showToast } = useToast();
   const quickEmojis = ["😀", "😂", "😍", "🔥", "👏", "🙏", "❤️", "👍"];
 
   useEffect(() => {
@@ -173,6 +175,9 @@ export default function CommentItem({
         totalComments: data.totalComments,
       });
       setIsDeleteConfirmOpen(false);
+      showToast("Comment deleted", "success");
+    } catch {
+      showToast("Failed to delete comment", "error");
     } finally {
       setIsDeleteSubmitting(false);
     }

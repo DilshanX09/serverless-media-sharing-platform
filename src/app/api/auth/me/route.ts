@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/routeAuth";
+import { memoryCacheGet, memoryCacheSet } from "@/lib/cache";
+
+interface CachedUser {
+  id: string;
+  email: string;
+  username: string;
+  displayName: string;
+  bio: string | null;
+  avatarBlobUrl: string | null;
+  createdAt: Date;
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authResult = requireAuth(request);
   if ("response" in authResult) {
     return authResult.response;
+  }
+
+  const cacheKey = `auth:me:${authResult.user.sub}`;
+  const cached = memoryCacheGet<CachedUser>(cacheKey);
+  if (cached) {
+    return NextResponse.json({ user: cached }, { status: 200 });
   }
 
   const user = await prisma.user.findUnique({
@@ -24,6 +41,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!user) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
+
+  memoryCacheSet(cacheKey, user, 10);
 
   return NextResponse.json({ user }, { status: 200 });
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { ToastProvider } from "@/components/ui/Toast";
 import ChunkErrorHandler from "@/components/system/ChunkErrorHandler";
 import { Inter } from "next/font/google";
 
@@ -27,24 +28,26 @@ export default function RootLayout({
           defaultTheme="dark"
           enableSystem={false}
         >
-          <ChunkErrorHandler />
-          <div className="min-h-screen flex flex-col font-sans antialiased">
-            <main className="flex-1">{children}</main>
-            <footer className="border-t border-border-soft px-4 py-4 text-center text-[12px] text-ink-3">
-              <span suppressHydrationWarning>
-                © {new Date().getFullYear()} Dilshan
-              </span>
-              {" · "}
-              <a
-                href="https://www.dilshanxo.dev"
-                target="_blank"
-                rel="noreferrer"
-                className="text-ink-2 hover:text-ink transition-colors"
-              >
-                www.dilshanxo.dev
-              </a>
-            </footer>
-          </div>
+          <ToastProvider>
+            <ChunkErrorHandler />
+            <div className="min-h-screen flex flex-col font-sans antialiased">
+              <main className="flex-1">{children}</main>
+              <footer className="border-t border-border-soft px-4 py-4 text-center text-[12px] text-ink-3">
+                <span suppressHydrationWarning>
+                  © {new Date().getFullYear()} Dilshan
+                </span>
+                {" · "}
+                <a
+                  href="https://www.dilshanxo.dev"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-ink-2 hover:text-ink transition-colors"
+                >
+                  www.dilshanxo.dev
+                </a>
+              </footer>
+            </div>
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

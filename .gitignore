@@ -52,6 +52,6 @@ Dockerfile
 /prisma/migrations
 
 
-# tsc outpues
+# tsc outputs
 tsc_output_2.txt
 tsc_output.txt

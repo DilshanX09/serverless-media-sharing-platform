@@ -21,6 +21,7 @@ import EditProfileModal from "@/components/profile/EditProfileModal";
 import PostModal from "@/components/post/PostModal";
 import type { Post, User } from "@/types";
 import { getAvatarGradient } from "@/lib/apiMappers";
+import { useToast } from "@/components/ui/Toast";
 
 interface ProfileResponse {
   user: User;
@@ -57,6 +58,7 @@ async function uploadAvatarFromBlobUrl(blobUrl: string): Promise<string> {
 export default function ProfilePage() {
   const params = useParams();
   const router = useRouter();
+  const { showToast } = useToast();
   const usernameParam = params?.username;
   const usernameValue = Array.isArray(usernameParam) ? usernameParam[0] : usernameParam;
   const rawUsername = decodeURIComponent(usernameValue ?? "unknown").replace(/^@/, "");
@@ -74,34 +76,37 @@ export default function ProfilePage() {
   useEffect(() => {
     let mounted = true;
     const loadProfile = async () => {
-      setIsLoading(true);
       setLoadError(null);
-      try {
-        const cached = window.sessionStorage.getItem(profileCacheKey(rawUsername));
-        if (cached && mounted) {
+      // Check sessionStorage cache first - show instantly if available
+      const cached = window.sessionStorage.getItem(profileCacheKey(rawUsername));
+      if (cached && mounted) {
+        try {
           const parsed = JSON.parse(cached) as ProfileResponse;
           setProfileData(parsed);
           setEditableUser(parsed.user);
           setIsLoading(false);
+        } catch {
+          // Invalid cache, continue to fetch
         }
-        try {
-          const response = await axios.get(`/api/profile/${encodeURIComponent(rawUsername)}`, { withCredentials: true });
-          const data = response.data as ProfileResponse;
-          if (!mounted) return;
-          setProfileData(data);
-          setEditableUser(data.user);
-          window.sessionStorage.setItem(profileCacheKey(rawUsername), JSON.stringify(data));
-        } catch (error: any) {
-          if (error.response?.status === 401) {
-            router.replace("/login");
-            return;
-          }
-          setLoadError("Profile not found.");
+      }
+      // Fetch fresh data in background
+      try {
+        const response = await axios.get(`/api/profile/${encodeURIComponent(rawUsername)}`, { withCredentials: true });
+        const data = response.data as ProfileResponse;
+        if (!mounted) return;
+        setProfileData(data);
+        setEditableUser(data.user);
+        window.sessionStorage.setItem(profileCacheKey(rawUsername), JSON.stringify(data));
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { status?: number } };
+        if (axiosError.response?.status === 401) {
+          router.replace("/login");
           return;
         }
-      } catch {
-        if (!mounted) return;
-        setLoadError("Unable to load profile.");
+        // Only show error if we have no cached data
+        if (!cached && mounted) {
+          setLoadError("Profile not found.");
+        }
       } finally {
         if (mounted) setIsLoading(false);
       }
@@ -118,15 +123,14 @@ export default function ProfilePage() {
     const loadSaved = async () => {
       setIsSavedLoading(true);
       try {
-        try {
-          const response = await axios.get(`/api/profile/${encodeURIComponent(rawUsername)}?includeSaved=1`, { withCredentials: true });
-          if (!active) return;
-          const data = response.data as ProfileResponse;
-          setProfileData((prev) => (prev ? { ...prev, savedPosts: data.savedPosts ?? [] } : prev));
-        } catch (error: any) {
-          if (error.response?.status === 401) {
-            router.replace("/login");
-          }
+        const response = await axios.get(`/api/profile/${encodeURIComponent(rawUsername)}?includeSaved=1`, { withCredentials: true });
+        if (!active) return;
+        const data = response.data as ProfileResponse;
+        setProfileData((prev) => (prev ? { ...prev, savedPosts: data.savedPosts ?? [] } : prev));
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { status?: number } };
+        if (axiosError.response?.status === 401) {
+          router.replace("/login");
         }
       } finally {
         if (active) setIsSavedLoading(false);
@@ -196,10 +200,12 @@ export default function ProfilePage() {
     });
 
     setIsSavingProfile(false);
+    showToast("Profile updated", "success");
   };
 
   const handleLogout = async () => {
     await axios.post("/api/auth/logout", {}, { withCredentials: true });
+    showToast("Logged out successfully", "success");
     router.push("/login");
     router.refresh();
   };

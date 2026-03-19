@@ -8,6 +8,44 @@ declare global {
   var redisConnectPromise: Promise<void> | undefined;
   // eslint-disable-next-line no-var
   var redisUnavailableUntil: number | undefined;
+  // eslint-disable-next-line no-var
+  var memoryCache: Map<string, { value: unknown; expiresAt: number }> | undefined;
+}
+
+const MEMORY_CACHE_MAX_SIZE = 500;
+
+function getMemoryCache(): Map<string, { value: unknown; expiresAt: number }> {
+  if (!global.memoryCache) {
+    global.memoryCache = new Map();
+  }
+  return global.memoryCache;
+}
+
+function memoryGet<T>(key: string): T | null {
+  const cache = getMemoryCache();
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value as T;
+}
+
+function memorySet<T>(key: string, value: T, ttlSeconds: number): void {
+  const cache = getMemoryCache();
+  if (cache.size >= MEMORY_CACHE_MAX_SIZE) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey) cache.delete(firstKey);
+  }
+  cache.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+}
+
+function memoryDelete(...keys: string[]): void {
+  const cache = getMemoryCache();
+  for (const key of keys) {
+    cache.delete(key);
+  }
 }
 
 function getRedisUrl(): string | null {
@@ -50,13 +88,20 @@ async function ensureRedisReady(client: RedisClientType): Promise<boolean> {
 }
 
 export async function cacheGetJson<T>(key: string): Promise<T | null> {
+  // Try memory cache first (instant)
+  const memResult = memoryGet<T>(key);
+  if (memResult !== null) return memResult;
+
   const client = getRedisClient();
   if (!client) return null;
   if (!(await ensureRedisReady(client))) return null;
   try {
     const raw = await client.get(key);
     if (!raw) return null;
-    return JSON.parse(raw) as T;
+    const parsed = JSON.parse(raw) as T;
+    // Populate memory cache for faster subsequent reads
+    memorySet(key, parsed, 15);
+    return parsed;
   } catch (error) {
     markRedisUnavailable(error);
     return null;
@@ -64,6 +109,9 @@ export async function cacheGetJson<T>(key: string): Promise<T | null> {
 }
 
 export async function cacheSetJson<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+  // Always set memory cache (instant)
+  memorySet(key, value, Math.min(ttlSeconds, 30));
+
   const client = getRedisClient();
   if (!client) return;
   if (!(await ensureRedisReady(client))) return;
@@ -75,6 +123,9 @@ export async function cacheSetJson<T>(key: string, value: T, ttlSeconds: number)
 }
 
 export async function cacheDelete(...keys: string[]): Promise<void> {
+  // Always clear memory cache
+  memoryDelete(...keys);
+
   const client = getRedisClient();
   if (!client || keys.length === 0) return;
   if (!(await ensureRedisReady(client))) return;
@@ -83,4 +134,13 @@ export async function cacheDelete(...keys: string[]): Promise<void> {
   } catch (error) {
     markRedisUnavailable(error);
   }
+}
+
+// Synchronous memory-only cache for ultra-fast paths
+export function memoryCacheGet<T>(key: string): T | null {
+  return memoryGet<T>(key);
+}
+
+export function memoryCacheSet<T>(key: string, value: T, ttlSeconds: number): void {
+  memorySet(key, value, ttlSeconds);
 }

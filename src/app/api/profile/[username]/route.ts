@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/routeAuth";
 import { mapPost, mapUser } from "@/lib/apiMappers";
-import { cacheGetJson, cacheSetJson } from "@/lib/cache";
+import { cacheGetJson, cacheSetJson, memoryCacheGet, memoryCacheSet } from "@/lib/cache";
 import { cacheKeys } from "@/lib/cacheKeys";
 
 export async function GET(
@@ -16,6 +16,23 @@ export async function GET(
   const username = decodeURIComponent(rawUsername).replace(/^@/, "");
   const includeSaved = request.nextUrl.searchParams.get("includeSaved") === "1";
   const key = cacheKeys.profile(username);
+
+  // Fast path: check memory cache first (synchronous, <1ms)
+  const memCached = memoryCacheGet<{
+    user: ReturnType<typeof mapUser>;
+    posts: ReturnType<typeof mapPost>[];
+  }>(key);
+  if (memCached) {
+    const isOwn = memCached.user.id === authResult.user.sub;
+    if (!isOwn || !includeSaved) {
+      return NextResponse.json(
+        { user: memCached.user, posts: memCached.posts, isOwn },
+        { status: 200 }
+      );
+    }
+  }
+
+  // Try Redis cache
   const cached = await cacheGetJson<{
     user: ReturnType<typeof mapUser>;
     posts: ReturnType<typeof mapPost>[];
@@ -25,11 +42,7 @@ export async function GET(
     const isOwn = cached.user.id === authResult.user.sub;
     if (!isOwn || !includeSaved) {
       return NextResponse.json(
-        {
-          user: cached.user,
-          posts: cached.posts,
-          isOwn,
-        },
+        { user: cached.user, posts: cached.posts, isOwn },
         { status: 200 }
       );
     }
@@ -101,7 +114,6 @@ export async function GET(
       : Promise.resolve([]),
   ]);
 
-
   const payload = {
     user: mapUser({
       ...user,
@@ -111,7 +123,11 @@ export async function GET(
     }),
     posts: posts.map((post) => mapPost(post)),
   };
+
+  // Cache in both memory and Redis
+  memoryCacheSet(key, payload, 20);
   await cacheSetJson(key, payload, 30);
+
   return NextResponse.json(
     {
       ...payload,

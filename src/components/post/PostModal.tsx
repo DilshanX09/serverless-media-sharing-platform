@@ -32,6 +32,7 @@ import Avatar from "@/components/ui/Avatar";
 import CommentItem from "@/components/post/CommentItem";
 import { mapUser } from "@/lib/apiMappers";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import VideoPlayer from "@/components/ui/VideoPlayer";
 
 interface PostModalProps {
   post: Post | null;
@@ -633,20 +634,17 @@ export default function PostModal({
                 onError={handleImageLoaded}
               />
             ) : (
-              <video
-                ref={videoRef}
+              <VideoPlayer
                 src={post.mediaUrl}
                 poster={post.thumbnailUrl}
-                className="w-full h-full object-contain"
-                controls
+                className="w-full h-full"
                 autoPlay
                 muted
-                playsInline
-                onLoadStart={handleVideoLoadStart}
-                onCanPlay={handleVideoCanPlay}
-                onError={handleVideoError}
-                onPlay={handleVideoPlay}
-                onPause={handleVideoPause}
+                loop
+                onReady={handleVideoCanPlay}
+                showSeekBar
+                showPlayButton
+                showMuteButton
               />
             )}
             <div
@@ -976,20 +974,17 @@ const MemoizedMediaPane = memo(
             onError={onImageLoaded}
           />
         ) : (
-          <video
-            ref={videoRef}
+          <VideoPlayer
             src={post.mediaUrl}
             poster={post.thumbnailUrl}
-            className="w-full h-full object-contain"
-            controls
+            className="w-full h-full"
             autoPlay
             muted
-            playsInline
-            onLoadStart={onVideoLoadStart}
-            onCanPlay={onVideoCanPlay}
-            onError={onVideoError}
-            onPlay={onVideoPlay}
-            onPause={onVideoPause}
+            loop
+            onReady={onVideoCanPlay}
+            showSeekBar
+            showPlayButton
+            showMuteButton
           />
         )}
 
@@ -1004,25 +999,6 @@ const MemoizedMediaPane = memo(
             Loading media...
           </div>
         </div>
-
-        {post.mediaType === "video" && (
-          <div
-            className={[
-              "absolute inset-0 flex items-center justify-center transition-opacity duration-200",
-              isVideoPlaying || isMediaLoading
-                ? "opacity-0 pointer-events-none"
-                : "opacity-100",
-            ].join(" ")}
-          >
-            <button
-              type="button"
-              onClick={onToggleVideo}
-              className="w-16 h-16 rounded-full bg-white/15 backdrop-blur border border-white/30 flex items-center justify-center hover:bg-white/25 transition-colors pointer-events-auto"
-            >
-              <Play size={26} fill="white" className="text-white ml-0.5" />
-            </button>
-          </div>
-        )}
       </div>
     );
   },

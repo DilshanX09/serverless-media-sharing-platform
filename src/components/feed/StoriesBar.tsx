@@ -7,6 +7,7 @@ import Image from "next/image";
 import { Loader2, Maximize2, Minimize2, Pause, Play, Plus, Trash2, UserRound, Volume2, VolumeX } from "lucide-react";
 import type { Story } from "@/types";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 
 interface StoriesBarProps {
   stories?: Story[];
@@ -15,6 +16,7 @@ interface StoriesBarProps {
 }
 
 export default function StoriesBar({ stories, onStoryCreated, currentUserId }: StoriesBarProps) {
+  const { showToast } = useToast();
   const storyItems = useMemo(
     () => (stories ?? []).filter((story) => Boolean(story.mediaUrl)),
     [stories]
@@ -32,11 +34,13 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
   const storyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewerVideoRef = useRef<HTMLVideoElement>(null);
+  const storySeekBarRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingStory, setIsUploadingStory] = useState(false);
   const [storyDeleteTarget, setStoryDeleteTarget] = useState<Story | null>(null);
   const [isDeletingStory, setIsDeletingStory] = useState(false);
+  const [isSeekingStory, setIsSeekingStory] = useState(false);
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartScrollLeftRef = useRef(0);
@@ -205,6 +209,59 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
     isDraggingRef.current = false;
   };
 
+  const handleStorySeek = (clientX: number) => {
+    const video = viewerVideoRef.current;
+    const bar = storySeekBarRef.current;
+    if (!video || !bar) return;
+    const rect = bar.getBoundingClientRect();
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    const percent = x / rect.width;
+    const newTime = percent * video.duration;
+    if (Number.isFinite(newTime)) {
+      video.currentTime = newTime;
+      setViewerVideoProgress(percent * 100);
+    }
+  };
+
+  const handleStorySeekStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
+    setIsSeekingStory(true);
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    handleStorySeek(clientX);
+  };
+
+  const handleStorySeekMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isSeekingStory) return;
+    e.stopPropagation();
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    handleStorySeek(clientX);
+  };
+
+  const handleStorySeekEnd = () => {
+    setIsSeekingStory(false);
+    revealViewerControl(true);
+  };
+
+  useEffect(() => {
+    if (!isSeekingStory) return;
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+      handleStorySeek(clientX);
+    };
+    const handleEnd = () => handleStorySeekEnd();
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleEnd);
+    window.addEventListener("touchmove", handleMove);
+    window.addEventListener("touchend", handleEnd);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleEnd);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleEnd);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSeekingStory]);
+
   const handleStoryFileInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -236,6 +293,9 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
         { withCredentials: true }
       );
       onStoryCreated?.();
+      showToast("Story added!", "success");
+    } catch {
+      showToast("Failed to upload story", "error");
     } finally {
       setIsUploadingStory(false);
     }
@@ -264,6 +324,9 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
       closeStory();
       setStoryDeleteTarget(null);
       onStoryCreated?.();
+      showToast("Story deleted", "success");
+    } catch {
+      showToast("Failed to delete story", "error");
     } finally {
       setIsDeletingStory(false);
     }
@@ -383,6 +446,7 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
                 className="relative w-full max-w-[92vw] h-[92vh] mx-4 bg-surface rounded-3xl overflow-hidden flex flex-col items-center justify-center shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
               >
+                {/* Progress bar for images, or non-interactive indicator for videos */}
                 <div className="absolute z-30 top-4 left-4 right-4 h-[3px] bg-white/20 rounded-full overflow-hidden">
                   {story.mediaType === "video" ? (
                     <div
@@ -569,6 +633,40 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
                           <Volume2 size={18} className="text-white" />
                         )}
                       </button>
+                    </div>
+
+                    {/* Video Seekbar */}
+                    <div
+                      className={[
+                        "absolute z-30 bottom-20 left-4 right-4 transition-opacity duration-200",
+                        viewerControlVisible && viewerVideoReady
+                          ? "opacity-100"
+                          : "opacity-0 pointer-events-none",
+                      ].join(" ")}
+                    >
+                      <div
+                        ref={storySeekBarRef}
+                        className="h-6 flex items-center cursor-pointer select-none"
+                        onMouseDown={handleStorySeekStart}
+                        onTouchStart={handleStorySeekStart}
+                        onMouseMove={handleStorySeekMove}
+                        onTouchMove={handleStorySeekMove}
+                      >
+                        <div className="relative w-full h-1.5 bg-white/30 rounded-full overflow-hidden">
+                          <div
+                            className="absolute inset-y-0 left-0 bg-white rounded-full"
+                            style={{ width: `${viewerVideoProgress}%` }}
+                          />
+                        </div>
+                        {/* Custom thumb */}
+                        <div
+                          className="absolute w-4 h-4 bg-white rounded-full shadow-md pointer-events-none transition-transform"
+                          style={{
+                            left: `${viewerVideoProgress}%`,
+                            transform: "translateX(-50%)",
+                          }}
+                        />
+                      </div>
                     </div>
                   </>
                 )}

@@ -5,9 +5,11 @@ import axios from "axios";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/Toast";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { showToast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -25,10 +27,14 @@ export default function LoginPage() {
         { withCredentials: true }
       );
       setIsLoading(false);
+      showToast("Welcome back!", "success");
       router.push("/");
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsLoading(false);
-      setError(err.response?.data?.error || "Unable to log in. Please try again.");
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      const msg = axiosErr.response?.data?.error || "Unable to log in. Please try again.";
+      setError(msg);
+      showToast(msg, "error");
     }
   };
 

@@ -6,6 +6,7 @@ import { BadgeCheck } from "lucide-react";
 import Avatar from "@/components/ui/Avatar";
 import axios from "axios";
 import type { SuggestedUser, User } from "@/types";
+import { useToast } from "@/components/ui/Toast";
 
 interface SidebarProps {
   isLoading?: boolean;
@@ -23,11 +24,12 @@ export default function Sidebar({
   onFollowedSuggestion,
 }: SidebarProps) {
   const router = useRouter();
+  const { showToast } = useToast();
   const [isSubmittingFor, setIsSubmittingFor] = useState<string | null>(null);
   const user = currentUserData;
   const suggestions = suggestedUsersData ?? [];
 
-  const handleFollow = async (targetUserId: string) => {
+  const handleFollow = async (targetUserId: string, username: string) => {
     try {
       setIsSubmittingFor(targetUserId);
       await axios.post(
@@ -36,6 +38,9 @@ export default function Sidebar({
         { withCredentials: true }
       );
       onFollowedSuggestion?.(targetUserId);
+      showToast(`You're now following ${username}`, "success");
+    } catch {
+      showToast("Failed to follow user", "error");
     } finally {
       setIsSubmittingFor(null);
     }
@@ -176,7 +181,7 @@ export default function Sidebar({
                   </div>
                   <button
                     type="button"
-                    onClick={() => void handleFollow(suggested.id)}
+                    onClick={() => void handleFollow(suggested.id, suggested.username)}
                     disabled={isSubmittingFor === suggested.id}
                     className="text-[12px] font-semibold text-brand hover:opacity-80 transition-opacity disabled:opacity-50"
                   >

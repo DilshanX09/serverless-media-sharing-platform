@@ -19,6 +19,8 @@ import {
 import type { Post } from "@/types";
 import Avatar from "@/components/ui/Avatar";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
+import VideoPlayer from "@/components/ui/VideoPlayer";
 
 interface PostCardProps {
   post: Post;
@@ -55,8 +57,11 @@ export default function PostCard({
   const [editCaption, setEditCaption] = useState(post.caption);
   const [isMediaLoading, setIsMediaLoading] = useState(true);
   const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
+  const [mediaLoadKey, setMediaLoadKey] = useState(0);
+  const mediaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ownerMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const { showToast } = useToast();
   const isOwner = currentUserId === post.user.id;
   const displayTags = useMemo(() => {
     if (post.tags.length > 0) return post.tags;
@@ -89,7 +94,19 @@ export default function PostCard({
   }, [post.id, post.caption, post.isLiked, post.likes, post.isSaved]);
 
   useEffect(() => {
+    // Reset loading state for new media
     setIsMediaLoading(Boolean(post.mediaUrl));
+    setMediaLoadKey((k) => k + 1);
+    // Fallback timeout: force hide loading after 8 seconds
+    if (mediaTimeoutRef.current) clearTimeout(mediaTimeoutRef.current);
+    if (post.mediaUrl) {
+      mediaTimeoutRef.current = setTimeout(() => {
+        setIsMediaLoading(false);
+      }, 8000);
+    }
+    return () => {
+      if (mediaTimeoutRef.current) clearTimeout(mediaTimeoutRef.current);
+    };
   }, [post.id, post.mediaUrl, post.mediaType]);
 
   useEffect(() => {
@@ -110,6 +127,9 @@ export default function PostCard({
       await axios.delete(`/api/posts/${post.id}`, { withCredentials: true });
       setIsDeleteConfirmOpen(false);
       onPostDeleted?.(post.id);
+      showToast("Post deleted successfully", "success");
+    } catch {
+      showToast("Failed to delete post", "error");
     } finally {
       setIsDeleteSubmitting(false);
     }
@@ -131,7 +151,9 @@ export default function PostCard({
         tags: trimmed.match(/#[A-Za-z0-9_]+/g) ?? [],
       });
       setIsEditModalOpen(false);
-      router.refresh();
+      showToast("Post updated", "success");
+    } catch {
+      showToast("Failed to update post", "error");
     } finally {
       setIsUpdateSubmitting(false);
     }
@@ -147,7 +169,10 @@ export default function PostCard({
     }
     try {
       await navigator.clipboard.writeText(shareUrl);
-    } catch {}
+      showToast("Link copied to clipboard", "success");
+    } catch {
+      showToast("Failed to copy link", "error");
+    }
   };
 
   const handleLike = async () => {
@@ -307,30 +332,37 @@ export default function PostCard({
         ) : post.mediaType === "image" ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
+            key={`img-${post.id}-${mediaLoadKey}`}
             src={post.mediaUrl}
             alt={post.mediaLabel}
-            className="w-full h-auto max-h-[68vh] sm:max-h-[78vh] object-contain group-hover:scale-[1.01] transition-transform duration-500"
+            className={[
+              "w-full h-auto max-h-[68vh] sm:max-h-[78vh] object-contain transition-transform duration-500",
+              isMediaLoading ? "opacity-0" : "opacity-100 group-hover:scale-[1.01]",
+            ].join(" ")}
             loading="lazy"
             decoding="async"
             onLoad={() => setIsMediaLoading(false)}
             onError={() => setIsMediaLoading(false)}
           />
         ) : (
-          <video
+          <VideoPlayer
+            key={`vid-${post.id}-${mediaLoadKey}`}
             src={post.mediaUrl}
             poster={post.thumbnailUrl}
-            className="w-full h-auto max-h-[68vh] sm:max-h-[78vh] object-contain group-hover:scale-[1.01] transition-transform duration-500"
-            muted
+            className={[
+              "w-full h-auto max-h-[68vh] sm:max-h-[78vh] transition-transform duration-500",
+              isMediaLoading ? "opacity-0" : "opacity-100 group-hover:scale-[1.01]",
+            ].join(" ")}
             autoPlay
             loop
-            preload="metadata"
-            playsInline
-            onLoadedData={() => setIsMediaLoading(false)}
-            onCanPlay={() => setIsMediaLoading(false)}
-            onError={() => setIsMediaLoading(false)}
+            muted
+            onReady={() => setIsMediaLoading(false)}
+            showSeekBar
+            showPlayButton
+            showMuteButton
           />
         )}
-        {isMediaLoading ? (
+        {isMediaLoading && post.mediaUrl ? (
           <div className="absolute inset-0 z-10 bg-surface-2 animate-pulse flex items-center justify-center">
             <div className="flex items-center gap-2 rounded-full bg-surface border border-border-soft px-3 py-1.5">
               <Loader2 size={16} className="animate-spin text-ink-3" />
