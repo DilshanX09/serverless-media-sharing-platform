@@ -22,13 +22,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const now = new Date();
+  const userId = authResult.user.sub;
+
+  // Clean up expired stories
   await prisma.story.deleteMany({
     where: {
       expiresAt: { lte: now },
     },
   });
 
-  const key = cacheKeys.storiesActive();
+  // Get users that the current user follows
+  const myFollowing = await prisma.follow.findMany({
+    where: { followerId: userId },
+    select: { followingId: true },
+  });
+  const followingIds = myFollowing.map((f) => f.followingId);
+  // Stories visible: own stories + followed users' stories
+  const allowedAuthorIds = [userId, ...followingIds];
+
+  // User-specific cache key
+  const key = `${cacheKeys.storiesActive()}:${userId}`;
   const cached = await cacheGetJson<{ stories: unknown[] }>(key);
   if (cached) {
     const filtered = (cached.stories as Array<{ expiresAt?: string | Date }>).filter((item) => {
@@ -40,9 +53,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const stories = await prisma.story.findMany({
     where: {
-      expiresAt: {
-        gt: now,
-      },
+      expiresAt: { gt: now },
+      authorId: { in: allowedAuthorIds },
     },
     include: {
       author: {

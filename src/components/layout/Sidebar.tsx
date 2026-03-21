@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { BadgeCheck } from "lucide-react";
 import Avatar from "@/components/ui/Avatar";
 import axios from "axios";
@@ -104,28 +105,27 @@ export default function Sidebar({
         <>
           {/* Profile */}
           <div className="px-1 pb-2">
-            <div className="flex items-center gap-3.5 mb-2">
+            <Link
+              href={`/profile/@${user.username}`}
+              prefetch={true}
+              className="flex items-center gap-3.5 mb-2 group"
+            >
               <Avatar
                 user={user}
                 size="lg"
-                onClick={() => router.push(`/profile/@${user.username}`)}
               />
               <div className="flex-1 min-w-0">
-                <p className="text-[18px] font-semibold text-ink leading-tight">
+                <p className="text-[18px] font-semibold text-ink leading-tight group-hover:text-brand transition-colors">
                   {user.displayName}
                 </p>
                 <p className="text-[15px] text-ink-2 mt-0.5">
                   @{user.username}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => router.push(`/profile/@${user.username}`)}
-                className="text-[13px] font-semibold text-ink-2 hover:text-ink transition-colors"
-              >
+              <span className="text-[13px] font-semibold text-ink-2 group-hover:text-ink transition-colors">
                 Edit
-              </button>
-            </div>
+              </span>
+            </Link>
           </div>
 
           {/* Suggested Friends */}

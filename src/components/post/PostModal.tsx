@@ -21,7 +21,6 @@ import {
   X,
   Play,
   BadgeCheck,
-  Smile,
   Loader2,
   Trash2,
   MoreHorizontal,
@@ -32,6 +31,7 @@ import Avatar from "@/components/ui/Avatar";
 import CommentItem from "@/components/post/CommentItem";
 import { mapUser } from "@/lib/apiMappers";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import CommentInput from "@/components/post/CommentInput";
 import VideoPlayer from "@/components/ui/VideoPlayer";
 
 interface PostModalProps {
@@ -60,12 +60,10 @@ export default function PostModal({
   const [saved, setSaved] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [commentCount, setCommentCount] = useState(0);
-  const [commentText, setCommentText] = useState("");
   const [comments, setComments] = useState<Comment[]>([]);
   const [isCommentsLoading, setIsCommentsLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
-  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const [isMediaLoading, setIsMediaLoading] = useState(true);
   const [isLikeSubmitting, setIsLikeSubmitting] = useState(false);
   const [isSaveSubmitting, setIsSaveSubmitting] = useState(false);
@@ -76,11 +74,8 @@ export default function PostModal({
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [editCaption, setEditCaption] = useState("");
   const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
-  const commentInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const emojiPickerRef = useRef<HTMLDivElement>(null);
   const ownerMenuRef = useRef<HTMLDivElement>(null);
-  const quickEmojis = ["😀", "😂", "😍", "🔥", "👏", "🙏", "❤️", "👍"];
 
   useEffect(() => {
     if (!post) return;
@@ -92,9 +87,7 @@ export default function PostModal({
       setComments([]);
       setIsCommentsLoading(true);
     }
-    setCommentText("");
     setIsVideoPlaying(false);
-    setIsEmojiOpen(false);
     setIsMediaLoading(true);
     setIsEditModalOpen(false);
     setEditCaption(post.caption);
@@ -107,13 +100,7 @@ export default function PostModal({
     setSaved(post.isSaved ?? false);
     setLikeCount(post.likes);
     setCommentCount(post.comments);
-  }, [
-    post?.comments,
-    post?.id,
-    post?.isLiked,
-    post?.isSaved,
-    post?.likes,
-  ]);
+  }, [post?.comments, post?.id, post?.isLiked, post?.isSaved, post?.likes]);
 
   const refreshComments = useCallback(
     async (activePostId: string): Promise<number | null> => {
@@ -137,21 +124,24 @@ export default function PostModal({
       try {
         const response = await axios.get(
           `/api/social/comments?postId=${encodeURIComponent(activePostId)}`,
-          { withCredentials: true }
+          { withCredentials: true },
         );
         const data = response.data as { comments: Comment[] };
         modalCommentsCache.set(activePostId, {
-        comments: data.comments,
-        cachedAt: Date.now(),
-      });
-      setComments(data.comments);
-      const countAll = (nodes: Comment[]): number =>
-        nodes.reduce((sum, node) => sum + 1 + countAll(node.replies ?? []), 0);
-      const total = countAll(data.comments);
-      setCommentCount(total);
-      onPostUpdated?.(activePostId, { comments: total });
-      setIsCommentsLoading(false);
-      return total;
+          comments: data.comments,
+          cachedAt: Date.now(),
+        });
+        setComments(data.comments);
+        const countAll = (nodes: Comment[]): number =>
+          nodes.reduce(
+            (sum, node) => sum + 1 + countAll(node.replies ?? []),
+            0,
+          );
+        const total = countAll(data.comments);
+        setCommentCount(total);
+        onPostUpdated?.(activePostId, { comments: total });
+        setIsCommentsLoading(false);
+        return total;
       } catch {
         setIsCommentsLoading(false);
         return null;
@@ -173,14 +163,24 @@ export default function PostModal({
       if (!mounted) return;
       socket.emit("room:post:join", { postId: post.id });
 
-      const onLike = (payload: { postId: string; actorUserId: string; totalLikes: number }) => {
-        if (payload.postId === post.id && payload.actorUserId !== currentUserId) {
+      const onLike = (payload: {
+        postId: string;
+        actorUserId: string;
+        totalLikes: number;
+      }) => {
+        if (
+          payload.postId === post.id &&
+          payload.actorUserId !== currentUserId
+        ) {
           setLikeCount(payload.totalLikes);
         }
       };
 
       const onComment = (payload: { postId: string; actorUserId: string }) => {
-        if (payload.postId === post.id && payload.actorUserId !== currentUserId) {
+        if (
+          payload.postId === post.id &&
+          payload.actorUserId !== currentUserId
+        ) {
           void refreshComments(post.id);
         }
       };
@@ -194,7 +194,9 @@ export default function PostModal({
       };
     };
     void setupSocket();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [post?.id, currentUserId, refreshComments]);
 
   const appendReplyByParentId = useCallback(
@@ -240,7 +242,9 @@ export default function PostModal({
     let mounted = true;
     const loadCurrentUser = async () => {
       try {
-        const response = await axios.get("/api/auth/me", { withCredentials: true });
+        const response = await axios.get("/api/auth/me", {
+          withCredentials: true,
+        });
         const data = response.data as {
           user: {
             id: string;
@@ -277,17 +281,6 @@ export default function PostModal({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
-
-  useEffect(() => {
-    if (!isEmojiOpen) return;
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (!emojiPickerRef.current?.contains(event.target as Node)) {
-        setIsEmojiOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", handleOutsideClick);
-    return () => window.removeEventListener("mousedown", handleOutsideClick);
-  }, [isEmojiOpen]);
 
   useEffect(() => {
     if (!isOwnerMenuOpen) return;
@@ -367,7 +360,7 @@ export default function PostModal({
       await axios.patch(
         `/api/posts/${post.id}`,
         { caption: trimmed },
-        { withCredentials: true }
+        { withCredentials: true },
       );
       onPostUpdated?.(post.id, {
         caption: trimmed,
@@ -411,7 +404,7 @@ export default function PostModal({
       const response = await axios.post(
         "/api/social/likes/toggle",
         { postId: post.id },
-        { withCredentials: true }
+        { withCredentials: true },
       );
       const data = response.data as {
         liked: boolean;
@@ -439,7 +432,7 @@ export default function PostModal({
       const response = await axios.post(
         "/api/social/saved/toggle",
         { postId: post.id },
-        { withCredentials: true }
+        { withCredentials: true },
       );
       const data = response.data as { saved: boolean };
       setSaved(data.saved);
@@ -452,66 +445,51 @@ export default function PostModal({
     }
   };
 
-  const submitComment = async () => {
-    const trimmed = commentText.trim();
-    if (!trimmed || !post) return;
-    try {
-      const response = await axios.post(
-        "/api/social/comments",
-        { postId: post.id, content: trimmed },
-        { withCredentials: true }
-      );
-      const data = response.data as {
-        comment?: Comment;
-        parentId?: string | null;
-        totalComments?: number;
-      };
-    if (typeof data.totalComments === "number") {
-      setCommentCount(data.totalComments);
-      onPostUpdated?.(post.id, { comments: data.totalComments });
-    }
-    if (data.comment) {
-      if (data.parentId) {
-        setComments((prev) => {
-          const updated = appendReplyByParentId(
-            prev,
-            data.parentId as string,
-            data.comment as Comment,
-          );
-          modalCommentsCache.set(post.id, {
-            comments: updated,
-            cachedAt: Date.now(),
-          });
-          return updated;
-        });
-      } else {
-        setComments((prev) => {
-          const updated = [...prev, data.comment as Comment];
-          modalCommentsCache.set(post.id, {
-            comments: updated,
-            cachedAt: Date.now(),
-          });
-          return updated;
-        });
-      }
-    }
-    } catch {}
-    setCommentText("");
-    setIsEmojiOpen(false);
-  };
-
-  const handleEmojiClick = (emoji: string) => {
-    setCommentText((prev) => `${prev}${emoji}`);
-    setIsEmojiOpen(false);
-    commentInputRef.current?.focus();
-  };
-
   return (
     <div
-      className="fixed inset-0 z-50 flex items-stretch justify-stretch md:items-center md:justify-center p-0 md:p-3 lg:p-6 bg-black/80 backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/95 md:bg-black/80"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-surface border-0 md:border md:border-border-mid rounded-none md:rounded-3xl w-full md:max-w-[980px] h-[100dvh] md:h-[92vh] md:max-h-[760px] flex flex-col md:flex-row overflow-hidden animate-[modalPop_0.22s_cubic-bezier(0.34,1.56,0.64,1)]">
+      <div className="bg-surface border-0 md:border md:border-border-soft rounded-none md:rounded-2xl w-full md:max-w-[90vw] lg:max-w-[1200px] h-[100dvh] md:h-[92vh] md:max-h-[850px] flex flex-col md:flex-row overflow-hidden">
+        
+        {/* Mobile Header - only visible on mobile */}
+        <div className="md:hidden flex items-center gap-2.5 px-3 py-2.5 border-b border-border-soft flex-shrink-0 bg-surface">
+          <Avatar
+            user={post.user}
+            size="sm"
+            ring
+            onClick={() => {
+              onClose();
+              router.push(`/profile/@${post.user.username}`);
+            }}
+            className="cursor-pointer"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  router.push(`/profile/@${post.user.username}`);
+                }}
+                className="text-[14px] font-semibold text-ink hover:opacity-70 transition-opacity text-left"
+              >
+                {post.user.username}
+              </button>
+              {post.user.isVerified && (
+                <BadgeCheck size={14} className="text-blue-500 fill-blue-500 stroke-base" />
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
+          >
+            <X size={18} strokeWidth={2} />
+          </button>
+        </div>
+
         <MemoizedMediaPane
           post={post}
           isMediaLoading={isMediaLoading}
@@ -526,12 +504,13 @@ export default function PostModal({
           videoRef={videoRef}
         />
 
-        <div className="w-full md:w-[380px] flex-shrink-0 flex flex-col md:border-l border-border-soft h-full min-h-0 overflow-hidden">
-          <div className="flex items-center gap-3 px-4 py-3.5 md:border-b border-border-soft flex-shrink-0">
-            <Avatar 
-              user={post.user} 
-              size="sm" 
-              ring 
+        <div className="flex-1 md:flex-none md:w-[380px] lg:w-[420px] flex flex-col md:border-l border-border-soft min-h-0 overflow-hidden bg-surface">
+          {/* Desktop Header - hidden on mobile */}
+          <div className="hidden md:flex items-center gap-2.5 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-border-soft flex-shrink-0">
+            <Avatar
+              user={post.user}
+              size="sm"
+              ring
               onClick={() => {
                 onClose();
                 router.push(`/profile/@${post.user.username}`);
@@ -546,35 +525,28 @@ export default function PostModal({
                     onClose();
                     router.push(`/profile/@${post.user.username}`);
                   }}
-                  className="text-[15px] font-semibold text-ink hover:text-brand transition-colors text-left"
+                  className="text-[14px] font-semibold text-ink hover:opacity-70 transition-opacity text-left"
                 >
                   {post.user.username}
                 </button>
                 {post.user.isVerified && (
                   <BadgeCheck
-                    size={15}
-                    className="text-ink-2 fill-ink-3 stroke-base"
+                    size={14}
+                    className="text-blue-500 fill-blue-500 stroke-base"
                   />
                 )}
+                <span className="text-[12px] text-ink-3">• {post.createdAt}</span>
               </div>
               {post.location && (
-                <p className="text-[12px] text-ink-3 mt-0.5">{post.location}</p>
+                <p className="text-[11px] text-ink-3 mt-0.5">{post.location}</p>
               )}
-              <p className="text-[11px] text-ink-3 mt-0.5">{post.createdAt}</p>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
-            >
-              <X size={18} strokeWidth={2} />
-            </button>
             {isOwner ? (
               <div className="relative" ref={ownerMenuRef}>
                 <button
                   type="button"
                   onClick={() => setIsOwnerMenuOpen((prev) => !prev)}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
                   title="Post options"
                   disabled={isDeleteSubmitting || isUpdateSubmitting}
                 >
@@ -619,62 +591,30 @@ export default function PostModal({
                 ) : null}
               </div>
             ) : null}
-          </div>
-
-          <div className="md:hidden bg-base relative h-[38vh] min-h-[240px] max-h-[48vh] flex-shrink-0">
-            {post.mediaType === "image" ? (
-              <Image
-                src={post.mediaUrl}
-                alt={post.mediaLabel}
-                fill
-                priority={true}
-                sizes="100vw"
-                className="object-contain"
-                onLoad={handleImageLoaded}
-                onError={handleImageLoaded}
-              />
-            ) : (
-              <VideoPlayer
-                src={post.mediaUrl}
-                poster={post.thumbnailUrl}
-                className="w-full h-full"
-                autoPlay
-                muted
-                loop
-                onReady={handleVideoCanPlay}
-                showSeekBar
-                showPlayButton
-                showMuteButton
-              />
-            )}
-            <div
-              className={[
-                "absolute inset-0 flex items-center justify-center transition-opacity duration-200 bg-base/75 backdrop-blur-[1px]",
-                isMediaLoading
-                  ? "opacity-100"
-                  : "opacity-0 pointer-events-none",
-              ].join(" ")}
+            {/* Close button - hidden on mobile (mobile has floating button) */}
+            <button
+              type="button"
+              onClick={onClose}
+              className="hidden md:flex w-8 h-8 rounded-full items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
             >
-              <div className="flex items-center gap-2 text-ink text-[13px] font-medium bg-surface/90 border border-border-soft rounded-full px-3 py-2">
-                <Loader2 size={14} className="animate-spin" />
-                Loading media...
-              </div>
-            </div>
+              <X size={18} strokeWidth={2} />
+            </button>
           </div>
 
-          <div className="p-4 pb-3 md:border-b border-border-soft flex-shrink-0">
-            <p className="text-[14px] text-ink-2 leading-relaxed">
+          {/* Caption section */}
+          <div className="p-3 sm:p-4 pb-2 sm:pb-3 border-b border-border-soft flex-shrink-0">
+            <p className="text-[13px] sm:text-[14px] text-ink leading-relaxed">
               <button
                 type="button"
                 onClick={() => {
                   onClose();
                   router.push(`/profile/@${post.user.username}`);
                 }}
-                className="font-semibold text-ink mr-1.5 hover:text-brand transition-colors"
+                className="font-semibold text-ink mr-1.5 hover:opacity-70 transition-opacity"
               >
                 {post.user.username}
               </button>
-              <span className="whitespace-pre-wrap">
+              <span className="whitespace-pre-wrap text-ink">
                 {isCaptionExpanded ? post.caption : captionPreview}
               </span>
             </p>
@@ -688,7 +628,7 @@ export default function PostModal({
               </button>
             ) : null}
             {!isCaptionExpanded ? (
-              <p className="text-[13px] text-ink mt-1.5">
+              <p className="text-[13px] text-ink-3 mt-1.5">
                 {(post.tags.length > 0
                   ? post.tags
                   : (post.caption.match(/#[A-Za-z0-9_]+/g) ?? [])
@@ -697,190 +637,174 @@ export default function PostModal({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-3 gap-2 px-4 py-2 md:border-b border-border-soft flex-shrink-0">
-            <div className="rounded-xl px-2 py-2 text-left">
-              <p className="text-[16px] font-bold text-ink">{likeCount}</p>
-              <p className="text-[11px] text-ink-3">Likes</p>
-            </div>
-            <div className="rounded-xl px-2 py-2 text-left">
-              <p className="text-[16px] font-bold text-ink">{commentCount}</p>
-              <p className="text-[11px] text-ink-3">Comments</p>
-            </div>
-            <div className="rounded-xl px-2 py-2 text-left">
-              <p className="text-[16px] font-bold text-ink">{saved ? 1 : 0}</p>
-              <p className="text-[11px] text-ink-3">Saved</p>
-            </div>
-          </div>
-
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-4 [scrollbar-width:none]">
+          {/* Comments section */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 space-y-4 [scrollbar-width:none] [-webkit-overflow-scrolling:touch]">
             {isCommentsLoading && comments.length === 0 ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {Array.from({ length: 4 }).map((_, index) => (
                   <div
                     key={`comment-skeleton-${index}`}
-                    className="flex items-start gap-2.5 animate-pulse"
+                    className="flex items-start gap-3 animate-pulse"
                   >
-                    <div className="w-7 h-7 rounded-full bg-surface-2" />
-                    <div className="flex-1 space-y-2">
-                      <div className="w-28 h-3 rounded bg-surface-2" />
-                      <div className="w-full h-3 rounded bg-surface-2" />
+                    <div className="w-8 h-8 rounded-full bg-surface-2 flex-shrink-0" />
+                    <div className="flex-1 space-y-2 pt-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-16 h-3.5 rounded bg-surface-2" />
+                        <div className="w-28 h-3.5 rounded bg-surface-2" />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-2.5 rounded bg-surface-2" />
+                        <div className="w-12 h-2.5 rounded bg-surface-2" />
+                      </div>
                     </div>
+                    <div className="w-4 h-4 rounded bg-surface-2 flex-shrink-0 mt-1" />
                   </div>
                 ))}
               </div>
+            ) : comments.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <MessageCircle size={52} className="text-ink-3/30 mb-4" strokeWidth={1} />
+                <p className="text-[16px] font-semibold text-ink">No comments yet</p>
+                <p className="text-[14px] text-ink-3 mt-1">Start the conversation</p>
+              </div>
             ) : (
-              <AnimatePresence initial={false}>
+              <div className="space-y-4">
                 {comments.map((cmt) => (
-                  <motion.div
+                  <CommentItem
                     key={cmt.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.18 }}
-                  >
-                    <CommentItem
-                      comment={cmt}
-                      postId={post.id}
-                      depth={0}
-                      parentId={null}
-                      currentUser={currentUser ?? undefined}
-                      onReplyCreated={(totalComments) => {
-                        setCommentCount(totalComments);
-                        onPostUpdated?.(post.id, { comments: totalComments });
-                      }}
-                      onCommentDeleted={({ commentId, totalComments }) => {
-                        setCommentCount(totalComments);
-                        onPostUpdated?.(post.id, { comments: totalComments });
-                        setComments((prev) => {
-                          const updated = removeCommentById(prev, commentId);
-                          modalCommentsCache.set(post.id, {
-                            comments: updated,
-                            cachedAt: Date.now(),
-                          });
-                          return updated;
+                    comment={cmt}
+                    postId={post.id}
+                    depth={0}
+                    parentId={null}
+                    currentUser={currentUser ?? undefined}
+                    onReplyCreated={(totalComments) => {
+                      setCommentCount(totalComments);
+                      onPostUpdated?.(post.id, { comments: totalComments });
+                    }}
+                    onCommentDeleted={({ commentId, totalComments }) => {
+                      setCommentCount(totalComments);
+                      onPostUpdated?.(post.id, { comments: totalComments });
+                      setComments((prev) => {
+                        const updated = removeCommentById(prev, commentId);
+                        modalCommentsCache.set(post.id, {
+                          comments: updated,
+                          cachedAt: Date.now(),
                         });
-                      }}
-                    />
-                  </motion.div>
+                        return updated;
+                      });
+                    }}
+                  />
                 ))}
-              </AnimatePresence>
+              </div>
             )}
           </div>
 
-          <div className="flex items-center gap-1 px-3 py-2 md:border-t border-border-soft flex-shrink-0 bg-surface">
-            <button
-              type="button"
-              onClick={() => void handleLike()}
-              disabled={isLikeSubmitting}
-              className={[
-                "w-11 h-11 rounded-xl flex items-center justify-center transition-all",
-                liked
-                  ? "text-brand bg-brand/10"
-                  : "text-ink-3 hover:bg-surface-2 hover:text-ink",
-              ].join(" ")}
-            >
-              <Heart
-                size={22}
-                strokeWidth={1.8}
-                fill={liked ? "currentColor" : "none"}
-              />
-            </button>
-            <span className="text-[13px] text-ink-3 min-w-[22px]">
-              {likeCount}
-            </span>
-            <button
-              type="button"
-              onClick={() => commentInputRef.current?.focus()}
-              className="w-11 h-11 rounded-xl flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
-            >
-              <MessageCircle size={22} strokeWidth={1.8} />
-            </button>
-            <span className="text-[13px] text-ink-3 min-w-[22px]">
-              {commentCount}
-            </span>
+          {/* Action bar with inline counts */}
+          <div className="flex items-center px-2 py-1.5 border-t border-border-soft flex-shrink-0 bg-surface">
+            {/* Like button with count */}
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => void handleLike()}
+                disabled={isLikeSubmitting}
+                className="p-2 transition-transform active:scale-90"
+              >
+                <Heart
+                  size={24}
+                  strokeWidth={1.8}
+                  className={`transition-colors ${liked ? "text-red-500 fill-red-500" : "text-ink"}`}
+                  fill={liked ? "currentColor" : "none"}
+                />
+              </button>
+              {likeCount > 0 && (
+                <span className="text-[13px] font-semibold text-ink -ml-0.5">{likeCount.toLocaleString()}</span>
+              )}
+            </div>
+            
+            {/* Comment button with count */}
+            <div className="flex items-center ml-1">
+              <button
+                type="button"
+                className="p-2 transition-transform active:scale-90"
+              >
+                <MessageCircle size={24} strokeWidth={1.8} className="text-ink" />
+              </button>
+              {commentCount > 0 && (
+                <span className="text-[13px] font-semibold text-ink -ml-0.5">{commentCount.toLocaleString()}</span>
+              )}
+            </div>
+            
+            {/* Share button */}
             <button
               type="button"
               onClick={() => void handleSharePost()}
-              className="w-11 h-11 rounded-xl flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
+              className="p-2 ml-1 transition-transform active:scale-90"
             >
-              <Send size={21} strokeWidth={1.8} />
+              <Send size={22} strokeWidth={1.8} className="text-ink -rotate-12" />
             </button>
+            
+            {/* Save button */}
             <button
               type="button"
               onClick={() => void handleSaveToggle()}
               disabled={isSaveSubmitting}
-              className={[
-                "ml-auto w-11 h-11 rounded-xl flex items-center justify-center transition-all",
-                saved
-                  ? "text-brand bg-brand/10"
-                  : "text-ink-3 hover:bg-surface-2 hover:text-ink",
-              ].join(" ")}
+              className="ml-auto p-2 transition-transform active:scale-90"
             >
               <Bookmark
-                size={22}
+                size={24}
                 strokeWidth={1.8}
+                className={`transition-colors ${saved ? "text-ink fill-ink" : "text-ink"}`}
                 fill={saved ? "currentColor" : "none"}
               />
             </button>
           </div>
 
-          <div className="flex items-center gap-3 px-4 py-3 md:border-t border-border-soft flex-shrink-0 bg-surface pb-[max(12px,env(safe-area-inset-bottom))]">
-            <div className="relative" ref={emojiPickerRef}>
-              <button
-                type="button"
-                onClick={() => setIsEmojiOpen((prev) => !prev)}
-                className="w-9 h-9 rounded-full bg-surface-2 border border-border-soft text-ink-2 hover:text-ink hover:bg-surface-3 transition-all flex items-center justify-center"
-                aria-label="Open emoji picker"
-              >
-                <Smile size={16} />
-              </button>
-              <AnimatePresence>
-                {isEmojiOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 6, scale: 0.96 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 6, scale: 0.96 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute bottom-11 left-0 z-20 rounded-xl border border-border-soft bg-surface p-2 shadow-xl"
-                  >
-                    <div className="grid grid-cols-4 gap-1">
-                      {quickEmojis.map((emoji) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          onClick={() => handleEmojiClick(emoji)}
-                          className="w-8 h-8 rounded-lg hover:bg-surface-2 text-[18px]"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            <input
-              ref={commentInputRef}
-              type="text"
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submitComment()}
-              placeholder="Add a comment…"
-              className="flex-1 bg-surface-2 border border-border-soft rounded-full px-4 py-2 text-[14px] text-ink placeholder-ink-3 outline-none focus:border-border-strong focus:bg-surface-3 transition-all"
-              style={{
-                fontFamily:
-                  "var(--font-inter), Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif",
-              }}
-            />
-            <button
-              type="button"
-              onClick={submitComment}
-              disabled={!commentText.trim()}
-              className="w-8 h-8 rounded-full bg-surface-2 disabled:opacity-50 text-ink-2 hover:text-ink transition-all flex items-center justify-center"
-            >
-              <Send size={15} strokeWidth={2.2} />
-            </button>
-          </div>
+          <CommentInput
+            onSubmit={async (text) => {
+              if (!post) return;
+              try {
+                const response = await axios.post(
+                  "/api/social/comments",
+                  { postId: post.id, content: text },
+                  { withCredentials: true },
+                );
+                const data = response.data as {
+                  comment?: Comment;
+                  parentId?: string | null;
+                  totalComments?: number;
+                };
+                if (typeof data.totalComments === "number") {
+                  setCommentCount(data.totalComments);
+                  onPostUpdated?.(post.id, { comments: data.totalComments });
+                }
+                if (data.comment) {
+                  if (data.parentId) {
+                    setComments((prev) => {
+                      const updated = appendReplyByParentId(
+                        prev,
+                        data.parentId as string,
+                        data.comment as Comment,
+                      );
+                      modalCommentsCache.set(post.id, {
+                        comments: updated,
+                        cachedAt: Date.now(),
+                      });
+                      return updated;
+                    });
+                  } else {
+                    setComments((prev) => {
+                      const updated = [...prev, data.comment as Comment];
+                      modalCommentsCache.set(post.id, {
+                        comments: updated,
+                        cachedAt: Date.now(),
+                      });
+                      return updated;
+                    });
+                  }
+                }
+              } catch {}
+            }}
+          />
         </div>
       </div>
 
@@ -961,15 +885,12 @@ const MemoizedMediaPane = memo(
     videoRef: RefObject<HTMLVideoElement | null>;
   }) {
     return (
-      <div className="hidden md:flex md:flex-1 min-w-0 h-[42vh] md:h-auto bg-base items-center justify-center relative overflow-hidden">
+      <div className="w-full md:h-full md:flex-1 min-w-0 bg-base flex items-center justify-center relative overflow-hidden flex-shrink-0">
         {post.mediaType === "image" ? (
-          <Image
+          <img
             src={post.mediaUrl}
             alt={post.mediaLabel}
-            fill
-            sizes="(max-width: 768px) 100vw, 980px"
-            priority={true}
-            className="object-contain"
+            className="w-full h-auto max-h-[60vh] md:max-h-full object-contain"
             onLoad={onImageLoaded}
             onError={onImageLoaded}
           />
@@ -977,7 +898,7 @@ const MemoizedMediaPane = memo(
           <VideoPlayer
             src={post.mediaUrl}
             poster={post.thumbnailUrl}
-            className="w-full h-full"
+            className="w-full h-auto max-h-[60vh] md:max-h-full object-contain"
             autoPlay
             muted
             loop
@@ -988,17 +909,11 @@ const MemoizedMediaPane = memo(
           />
         )}
 
-        <div
-          className={[
-            "absolute inset-0 flex items-center justify-center transition-opacity duration-200 bg-base/75 backdrop-blur-[1px]",
-            isMediaLoading ? "opacity-100" : "opacity-0 pointer-events-none",
-          ].join(" ")}
-        >
-          <div className="flex items-center gap-2 text-ink text-[13px] font-medium bg-surface/90 border border-border-soft rounded-full px-3 py-2">
-            <Loader2 size={14} className="animate-spin" />
-            Loading media...
+        {isMediaLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface-2/50">
+            <Loader2 size={28} className="animate-spin text-ink-3" />
           </div>
-        </div>
+        )}
       </div>
     );
   },

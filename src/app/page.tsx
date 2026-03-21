@@ -34,7 +34,9 @@ export default function HomePage() {
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
   const [searchableUsers, setSearchableUsers] = useState<User[]>([]);
   const [isGuest, setIsGuest] = useState(false);
-  const [activeFeedTab, setActiveFeedTab] = useState<"forYou" | "following">("forYou");
+  const [activeFeedTab, setActiveFeedTab] = useState<"forYou" | "following">(
+    "forYou",
+  );
   const handleSuggestionFollowed = (userId: string) => {
     setSuggestedUsers((prev) => prev.filter((user) => user.id !== userId));
   };
@@ -56,7 +58,9 @@ export default function HomePage() {
     } catch (error: any) {
       if (error.response?.status === 401) {
         try {
-          const guestResponse = await axios.get("/api/feed/public", { withCredentials: true });
+          const guestResponse = await axios.get("/api/feed/public", {
+            withCredentials: true,
+          });
           const guestData = guestResponse.data as { posts: Post[] };
           setPosts(guestData.posts);
           setFollowingPosts([]);
@@ -107,23 +111,33 @@ export default function HomePage() {
     };
   }, [loadFeed]);
 
-  const handlePostUpdated = useCallback((postId: string, patch: Partial<Post>) => {
-    const applyPatch = (items: Post[]) => items.map((item) => (item.id === postId ? { ...item, ...patch } : item));
-    setPosts((prev) => applyPatch(prev));
-    setFollowingPosts((prev) => applyPatch(prev));
-    setActivePost((prev) => (prev && prev.id === postId ? { ...prev, ...patch } : prev));
-  }, []);
+  const handlePostUpdated = useCallback(
+    (postId: string, patch: Partial<Post>) => {
+      const applyPatch = (items: Post[]) =>
+        items.map((item) =>
+          item.id === postId ? { ...item, ...patch } : item,
+        );
+      setPosts((prev) => applyPatch(prev));
+      setFollowingPosts((prev) => applyPatch(prev));
+      setActivePost((prev) =>
+        prev && prev.id === postId ? { ...prev, ...patch } : prev,
+      );
+    },
+    [],
+  );
 
   const handlePostDeleted = useCallback((postId: string) => {
-    const removeById = (items: Post[]) => items.filter((item) => item.id !== postId);
+    const removeById = (items: Post[]) =>
+      items.filter((item) => item.id !== postId);
     setPosts((prev) => removeById(prev));
     setFollowingPosts((prev) => removeById(prev));
     setActivePost((prev) => (prev?.id === postId ? null : prev));
   }, []);
 
   const visiblePosts = useMemo(
-    () => (isGuest ? posts : activeFeedTab === "following" ? followingPosts : posts),
-    [activeFeedTab, followingPosts, isGuest, posts]
+    () =>
+      isGuest ? posts : activeFeedTab === "following" ? followingPosts : posts,
+    [activeFeedTab, followingPosts, isGuest, posts],
   );
 
   useEffect(() => {
@@ -146,17 +160,34 @@ export default function HomePage() {
       joinPosts(posts);
       joinPosts(followingPosts);
 
-      const onLike = (payload: { postId: string; actorUserId: string; liked: boolean; totalLikes: number }) => {
+      const onLike = (payload: {
+        postId: string;
+        actorUserId: string;
+        liked: boolean;
+        totalLikes: number;
+      }) => {
         handlePostUpdated(payload.postId, {
           likes: payload.totalLikes,
-          ...(payload.actorUserId === currentUser.id ? { isLiked: payload.liked } : {}),
+          ...(payload.actorUserId === currentUser.id
+            ? { isLiked: payload.liked }
+            : {}),
         });
       };
-      const onComment = (payload: { postId: string; totalComments: number }) => {
+      const onComment = (payload: {
+        postId: string;
+        totalComments: number;
+      }) => {
         handlePostUpdated(payload.postId, { comments: payload.totalComments });
       };
-      const onPostUpdatedRealtime = (payload: { postId: string; caption: string; tags: string[] }) => {
-        handlePostUpdated(payload.postId, { caption: payload.caption, tags: payload.tags });
+      const onPostUpdatedRealtime = (payload: {
+        postId: string;
+        caption: string;
+        tags: string[];
+      }) => {
+        handlePostUpdated(payload.postId, {
+          caption: payload.caption,
+          tags: payload.tags,
+        });
       };
       socket.on("social:like:toggled", onLike);
       socket.on("conversation:comment:new", onComment);
@@ -184,31 +215,37 @@ export default function HomePage() {
       />
 
       <main className="pt-[60px] min-h-screen bg-base">
-        <div className="max-w-[1240px] mx-auto px-4 md:px-6 py-8 grid grid-cols-1 lg:grid-cols-[minmax(0,68%)_minmax(260px,32%)] gap-7 items-start">
-
+        <div className="max-w-[1240px] mx-auto px-0 sm:px-4 md:px-6 py-2 sm:py-8 grid grid-cols-1 lg:grid-cols-[minmax(0,68%)_minmax(260px,32%)] gap-7 items-start">
           {/* Feed Column */}
           <section>
             <div className="max-w-[600px] mx-auto w-full">
               {isInitialLoading ? (
-                <div className="mb-6">
-                  <div className="flex gap-3 overflow-hidden pb-3">
+                <div className="mb-4 px-3 sm:px-0">
+                  <div className="flex gap-3 overflow-hidden pb-2">
                     {Array.from({ length: 7 }).map((_, index) => (
-                      <div key={`story-skeleton-${index}`} className="flex flex-col items-center gap-2 flex-shrink-0">
-                        <div className="w-[74px] h-[74px] rounded-full bg-surface-2 animate-pulse" />
-                        <div className="w-14 h-3 rounded bg-surface-2 animate-pulse" />
+                      <div
+                        key={`story-skeleton-${index}`}
+                        className="flex flex-col items-center gap-1.5 flex-shrink-0"
+                      >
+                        <div className="w-[66px] h-[66px] sm:w-[74px] sm:h-[74px] rounded-full bg-surface-2 animate-pulse" />
+                        <div className="w-12 h-2.5 rounded bg-surface-2 animate-pulse" />
                       </div>
                     ))}
                   </div>
                 </div>
               ) : !isGuest ? (
-                <StoriesBar
-                  stories={stories}
-                  onStoryCreated={() => void loadFeed()}
-                  currentUserId={currentUser?.id}
-                />
+                <div className="px-3 sm:px-0">
+                  <StoriesBar
+                    stories={stories}
+                    onStoryCreated={() => void loadFeed()}
+                    currentUserId={currentUser?.id}
+                  />
+                </div>
               ) : (
-                <div className="mb-6 rounded-2xl border border-border-soft bg-surface px-4 py-4">
-                  <p className="text-[14px] font-semibold text-ink">Stories are available for logged users.</p>
+                <div className="mb-4 py-3 px-3 sm:px-0">
+                  <p className="text-[14px] text-ink-3">
+                    Stories are available for logged users.
+                  </p>
                   <button
                     type="button"
                     onClick={() => router.push("/login")}
@@ -219,14 +256,16 @@ export default function HomePage() {
                 </div>
               )}
 
-              <div className="flex items-center mb-5">
+              <div className="flex items-center mb-2 sm:mb-5 px-3 sm:px-0">
                 {!isGuest ? (
-                  <div className="inline-flex items-center gap-5">
+                  <div className="flex items-center gap-4">
                     <button
                       type="button"
                       onClick={() => setActiveFeedTab("forYou")}
-                      className={`text-[13px] font-semibold transition-colors ${
-                        activeFeedTab === "forYou" ? "text-ink" : "text-ink-3/70 hover:text-ink-2"
+                      className={`text-[14px] font-semibold transition-colors ${
+                        activeFeedTab === "forYou"
+                          ? "text-ink"
+                          : "text-ink-3"
                       }`}
                     >
                       For you
@@ -234,34 +273,54 @@ export default function HomePage() {
                     <button
                       type="button"
                       onClick={() => setActiveFeedTab("following")}
-                      className={`text-[13px] font-semibold transition-colors ${
-                        activeFeedTab === "following" ? "text-ink" : "text-ink-3/70 hover:text-ink-2"
+                      className={`text-[14px] font-semibold transition-colors ${
+                        activeFeedTab === "following"
+                          ? "text-ink"
+                          : "text-ink-3"
                       }`}
                     >
                       Following
                     </button>
                   </div>
                 ) : (
-                  <span className="text-[12px] font-semibold uppercase tracking-[0.8px] text-ink-3">Recent posts</span>
+                  <span className="text-[12px] font-semibold uppercase tracking-[0.8px] text-ink-3">
+                    Recent posts
+                  </span>
                 )}
               </div>
 
               {isInitialLoading ? (
-                <div className="space-y-5">
+                <div className="space-y-0 sm:space-y-4">
                   {Array.from({ length: 3 }).map((_, index) => (
-                    <div key={`post-skeleton-${index}`} className="bg-surface rounded-2xl overflow-hidden">
-                      <div className="flex items-center gap-3 px-4 py-3.5">
-                        <div className="w-10 h-10 rounded-full bg-surface-2 animate-pulse" />
-                        <div className="flex-1 space-y-2">
-                          <div className="w-28 h-3.5 rounded bg-surface-2 animate-pulse" />
-                          <div className="w-16 h-3 rounded bg-surface-2 animate-pulse" />
+                    <div
+                      key={`post-skeleton-${index}`}
+                      className="bg-transparent sm:bg-surface sm:rounded-2xl overflow-hidden border-b border-border-soft sm:border-0"
+                    >
+                      {/* Header skeleton */}
+                      <div className="flex items-center gap-2.5 px-3 sm:px-4 py-2.5 sm:py-3">
+                        <div className="w-9 h-9 rounded-full bg-surface-2 animate-pulse" />
+                        <div className="flex-1 space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 h-3.5 rounded-full bg-surface-2 animate-pulse" />
+                            <div className="w-12 h-3 rounded-full bg-surface-2 animate-pulse" />
+                          </div>
                         </div>
                       </div>
-                      <div className="aspect-square bg-surface-2 animate-pulse" />
-                      <div className="px-4 py-4 space-y-3">
-                        <div className="w-40 h-3.5 rounded bg-surface-2 animate-pulse" />
-                        <div className="w-full h-3 rounded bg-surface-2 animate-pulse" />
-                        <div className="w-4/5 h-3 rounded bg-surface-2 animate-pulse" />
+                      {/* Media skeleton */}
+                      <div className="w-full aspect-square bg-surface-2 animate-pulse" />
+                      {/* Actions skeleton */}
+                      <div className="px-3 sm:px-4 py-3 space-y-2.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-7 h-7 rounded-full bg-surface-2 animate-pulse" />
+                          <div className="w-7 h-7 rounded-full bg-surface-2 animate-pulse" />
+                          <div className="w-7 h-7 rounded-full bg-surface-2 animate-pulse" />
+                          <div className="w-7 h-7 rounded-full bg-surface-2 animate-pulse ml-auto" />
+                        </div>
+                        <div className="w-20 h-3.5 rounded-full bg-surface-2 animate-pulse" />
+                        <div className="flex gap-1.5">
+                          <div className="w-16 h-3 rounded-full bg-surface-2 animate-pulse" />
+                          <div className="w-32 h-3 rounded-full bg-surface-2 animate-pulse" />
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -279,9 +338,11 @@ export default function HomePage() {
                   />
                 ))
               ) : (
-                <div className="rounded-2xl border border-border-soft bg-surface px-5 py-8 text-center">
+                <div className="px-5 py-8 text-center">
                   <p className="text-[16px] font-semibold text-ink">
-                    {activeFeedTab === "following" && !isGuest ? "No following posts yet" : "No posts yet"}
+                    {activeFeedTab === "following" && !isGuest
+                      ? "No following posts yet"
+                      : "No posts yet"}
                   </p>
                   <p className="text-[13px] text-ink-3 mt-1">
                     {activeFeedTab === "following" && !isGuest
@@ -293,14 +354,16 @@ export default function HomePage() {
             </div>
           </section>
 
-          {/* Sidebar Column */}
-          <Sidebar
-            isLoading={isInitialLoading}
-            currentUserData={currentUser ?? undefined}
-            suggestedUsersData={suggestedUsers}
-            isGuest={isGuest}
-            onFollowedSuggestion={handleSuggestionFollowed}
-          />
+          {/* Sidebar Column - hidden on mobile */}
+          <div className="hidden lg:block">
+            <Sidebar
+              isLoading={isInitialLoading}
+              currentUserData={currentUser ?? undefined}
+              suggestedUsersData={suggestedUsers}
+              isGuest={isGuest}
+              onFollowedSuggestion={handleSuggestionFollowed}
+            />
+          </div>
         </div>
       </main>
 

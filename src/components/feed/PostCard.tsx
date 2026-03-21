@@ -232,48 +232,43 @@ export default function PostCard({
 
   return (
     <article
-      className="bg-surface rounded-2xl overflow-hidden mb-6 transition-colors animate-fade-up shadow-sm"
+      className="bg-transparent sm:bg-surface sm:rounded-2xl overflow-hidden mb-0 sm:mb-5 transition-colors animate-fade-up sm:shadow-sm border-b border-border-soft sm:border-0"
       style={animDelay ? { animationDelay: animDelay } : {}}
     >
       {/* Post Header */}
-      <div className="flex items-center gap-3 px-4 py-3.5">
+      <div className="flex items-center gap-2.5 px-3 sm:px-4 py-2.5 sm:py-3">
         <Avatar
           user={post.user}
           size="md"
           onClick={() => router.push(`/profile/@${post.user.username}`)}
         />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => router.push(`/profile/@${post.user.username}`)}
-              className="text-[16px] font-semibold text-ink hover:text-brand transition-colors leading-tight"
+              className="text-[14px] sm:text-[15px] font-semibold text-ink hover:opacity-70 transition-opacity leading-tight"
             >
               {post.user.username}
             </button>
             {post.user.isVerified && (
               <BadgeCheck
-                size={16}
-                className="text-ink-2 flex-shrink-0 fill-ink-3 stroke-base"
+                size={14}
+                className="text-blue-500 flex-shrink-0 fill-blue-500 stroke-base"
               />
             )}
+            <span className="text-[12px] text-ink-3">• {post.createdAt}</span>
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            {post.location && (
-              <>
-                <span className="text-[12px] text-ink-3">{post.location}</span>
-                <span className="text-[12px] text-ink-3">·</span>
-              </>
-            )}
-            <span className="text-[12px] text-ink-3">{post.createdAt}</span>
-          </div>
+          {post.location && (
+            <span className="text-[11px] text-ink-3 mt-0.5 block">{post.location}</span>
+          )}
         </div>
         {isOwner ? (
           <div className="relative" ref={ownerMenuRef}>
             <button
               type="button"
               onClick={() => setIsOwnerMenuOpen((prev) => !prev)}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
               title="Post options"
               disabled={isDeleteSubmitting || isUpdateSubmitting}
             >
@@ -322,11 +317,11 @@ export default function PostCard({
 
       {/* Media */}
       <div
-        className="w-full min-h-[260px] sm:min-h-[320px] bg-base relative overflow-hidden cursor-pointer group flex items-center justify-center"
+        className="w-full min-h-[200px] bg-black relative overflow-hidden cursor-pointer group flex items-center justify-center"
         onClick={() => onOpenPost(post)}
       >
         {!post.mediaUrl ? (
-          <div className="w-full h-full flex items-center justify-center bg-surface-2">
+          <div className="w-full aspect-square flex items-center justify-center bg-surface-2">
             <p className="text-[12px] text-ink-3">Media unavailable</p>
           </div>
         ) : post.mediaType === "image" ? (
@@ -336,8 +331,8 @@ export default function PostCard({
             src={post.mediaUrl}
             alt={post.mediaLabel}
             className={[
-              "w-full h-auto max-h-[68vh] sm:max-h-[78vh] object-contain transition-transform duration-500",
-              isMediaLoading ? "opacity-0" : "opacity-100 group-hover:scale-[1.01]",
+              "w-full h-auto max-h-[85vh] object-contain",
+              isMediaLoading ? "opacity-0" : "opacity-100",
             ].join(" ")}
             loading="lazy"
             decoding="async"
@@ -350,8 +345,8 @@ export default function PostCard({
             src={post.mediaUrl}
             poster={post.thumbnailUrl}
             className={[
-              "w-full h-auto max-h-[68vh] sm:max-h-[78vh] transition-transform duration-500",
-              isMediaLoading ? "opacity-0" : "opacity-100 group-hover:scale-[1.01]",
+              "w-full h-auto max-h-[85vh] object-contain",
+              isMediaLoading ? "opacity-0" : "opacity-100",
             ].join(" ")}
             autoPlay
             loop
@@ -363,71 +358,62 @@ export default function PostCard({
           />
         )}
         {isMediaLoading && post.mediaUrl ? (
-          <div className="absolute inset-0 z-10 bg-surface-2 animate-pulse flex items-center justify-center">
-            <div className="flex items-center gap-2 rounded-full bg-surface border border-border-soft px-3 py-1.5">
-              <Loader2 size={16} className="animate-spin text-ink-3" />
-              <span className="text-[12px] text-ink-3">Loading media...</span>
-            </div>
-          </div>
+          <div className="absolute inset-0 z-10 bg-surface-2 animate-pulse min-h-[200px]" />
         ) : null}
         {post.mediaType === "video" && (
-          <div className="absolute top-3 right-3 bg-black/65 backdrop-blur-sm text-white text-[11px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5">
-            <Video size={12} />
-            Reel
+          <div className="absolute top-2 right-2 sm:top-3 sm:right-3 bg-black/65 backdrop-blur-sm text-white text-[10px] sm:text-[11px] font-bold px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md sm:rounded-lg flex items-center gap-1">
+            <Video size={10} className="sm:w-3 sm:h-3" />
+            <span className="hidden sm:inline">Reel</span>
           </div>
         )}
-        <div className="absolute left-3 bottom-3">
-          <span className="text-[11px] text-white/90 bg-black/45 px-2.5 py-1 rounded-md">
+        <div className="absolute left-2 sm:left-3 bottom-2 sm:bottom-3 z-20 hidden sm:block">
+          <span className="text-[10px] sm:text-[11px] text-white/90 bg-black/45 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-md">
             {post.mediaLabel}
           </span>
         </div>
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors flex items-center justify-center">
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/55 rounded-lg px-4 py-2 text-[12px] text-white font-semibold">
-            Open
+        {/* Only show "Open" overlay for images on desktop */}
+        {post.mediaType === "image" && (
+          <div className="hidden sm:flex absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors items-center justify-center">
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/55 rounded-lg px-4 py-2 text-[12px] text-white font-semibold">
+              Open
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Action Bar */}
-      <div className="px-2 pt-3 flex items-center gap-0.5">
+      <div className="px-2 sm:px-3 pt-2 flex items-center">
         {/* Like */}
         <button
           type="button"
           onClick={handleLike}
           disabled={isLikeSubmitting}
-          className={[
-            "flex items-center gap-1.5 px-3 py-2 rounded-xl text-[14px] font-medium transition-all",
-            liked
-              ? "text-brand bg-brand/10 hover:bg-brand/15"
-              : "text-ink-3 hover:bg-surface-2 hover:text-ink",
-          ].join(" ")}
+          className="p-2 transition-transform active:scale-90"
         >
           <Heart
-            size={20}
+            size={26}
             strokeWidth={1.8}
-            className="transition-all"
+            className={`transition-colors ${liked ? "text-red-500 fill-red-500" : "text-ink"}`}
             fill={liked ? "currentColor" : "none"}
           />
-          <span>{formatCount(likes)}</span>
         </button>
 
         {/* Comment */}
         <button
           type="button"
           onClick={() => onOpenPost(post)}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[14px] font-medium text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
+          className="p-2 transition-transform active:scale-90"
         >
-          <MessageCircle size={20} strokeWidth={1.8} />
-          <span>{formatCount(post.comments)}</span>
+          <MessageCircle size={26} strokeWidth={1.8} className="text-ink" />
         </button>
 
         {/* Share */}
         <button
           type="button"
           onClick={() => void handleSharePost()}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[14px] font-medium text-ink-3 hover:bg-surface-2 hover:text-ink transition-all"
+          className="p-2 transition-transform active:scale-90"
         >
-          <Send size={19} strokeWidth={1.8} />
+          <Send size={24} strokeWidth={1.8} className="text-ink -rotate-12" />
         </button>
 
         {/* Save — right aligned */}
@@ -435,32 +421,33 @@ export default function PostCard({
           type="button"
           onClick={() => void handleSave()}
           disabled={isSaveSubmitting}
-          className={[
-            "ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl text-[14px] transition-all",
-            saved
-              ? "text-brand bg-brand/10 hover:bg-brand/10"
-              : "text-ink-3 hover:bg-surface-2 hover:text-ink",
-          ].join(" ")}
+          className="ml-auto p-2 transition-transform active:scale-90"
         >
           <Bookmark
-            size={20}
+            size={26}
             strokeWidth={1.8}
+            className={`transition-colors ${saved ? "text-ink fill-ink" : "text-ink"}`}
             fill={saved ? "currentColor" : "none"}
           />
         </button>
       </div>
 
+      {/* Likes count */}
+      <div className="px-4">
+        <p className="text-[14px] font-semibold text-ink">{formatCount(likes)} likes</p>
+      </div>
+
       {/* Caption */}
-      <div className="px-4 pt-2 pb-4">
-        <p className="text-[15px] text-ink-2 leading-relaxed">
+      <div className="px-4 pt-1 pb-3">
+        <p className="text-[14px] text-ink leading-relaxed">
           <button
             type="button"
             onClick={() => router.push(`/profile/@${post.user.username}`)}
-            className="font-semibold text-ink mr-1.5 hover:text-brand transition-colors"
+            className="font-semibold text-ink mr-1 hover:opacity-70 transition-opacity"
           >
             {post.user.username}
           </button>
-          <span className="whitespace-pre-wrap">
+          <span className="whitespace-pre-wrap text-ink">
             {isCaptionExpanded ? post.caption : captionPreview}
           </span>
         </p>
@@ -468,19 +455,19 @@ export default function PostCard({
           <button
             type="button"
             onClick={() => setIsCaptionExpanded((prev) => !prev)}
-            className="text-[13px] text-ink-3 hover:text-ink mt-1"
+            className="text-[14px] text-ink-3 hover:text-ink mt-0.5"
           >
             {isCaptionExpanded ? "See less" : "See more"}
           </button>
         ) : null}
         {!isCaptionExpanded && displayTags.length > 0 && (
-          <p className="text-[13px] text-ink mt-1.5">{displayTags.join(" ")}</p>
+          <p className="text-[13px] text-brand mt-1">{displayTags.join(" ")}</p>
         )}
         {post.comments > 0 && (
           <button
             type="button"
             onClick={() => onOpenPost(post)}
-            className="text-[13px] text-ink-3 mt-2 hover:text-ink-3 transition-colors block"
+            className="text-[14px] text-ink-3 mt-1 block"
           >
             View all {post.comments} comments
           </button>

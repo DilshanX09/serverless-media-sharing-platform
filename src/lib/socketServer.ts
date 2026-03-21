@@ -107,6 +107,7 @@ export function emitCommentLikeToggled(payload: {
   commentId: string;
   liked: boolean;
   totalLikes: number;
+  actorUserId: string;
 }): void {
   const io = getIO();
   if (!io) {

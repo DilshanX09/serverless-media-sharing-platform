@@ -67,13 +67,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     isFollowing,
   });
   await Promise.all([emitProfileStats(targetUserId), emitProfileStats(authResult.user.sub)]);
+  
+  // Invalidate caches including user-specific stories cache
   await cacheDelete(
     cacheKeys.feed(authResult.user.sub),
     cacheKeys.feed(targetUserId),
     cacheKeys.profile(authResult.user.username),
     cacheKeys.profile(target.username),
     cacheKeys.profileMe(authResult.user.sub),
-    cacheKeys.profileMe(targetUserId)
+    cacheKeys.profileMe(targetUserId),
+    `${cacheKeys.storiesActive()}:${authResult.user.sub}` // Invalidate stories when following changes
   );
 
   return NextResponse.json(

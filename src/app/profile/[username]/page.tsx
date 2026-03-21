@@ -15,9 +15,11 @@ import {
   ArrowLeft,
   Settings,
   LogOut,
+  Play,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import EditProfileModal from "@/components/profile/EditProfileModal";
+import FollowListModal from "@/components/profile/FollowListModal";
 import PostModal from "@/components/post/PostModal";
 import type { Post, User } from "@/types";
 import { getAvatarGradient } from "@/lib/apiMappers";
@@ -28,6 +30,7 @@ interface ProfileResponse {
   posts: Post[];
   savedPosts?: Post[];
   isOwn: boolean;
+  currentUserId?: string;
 }
 
 const profileCacheKey = (username: string) => `mini_insta_profile_${username}`;
@@ -72,6 +75,8 @@ export default function ProfilePage() {
   const [activePost, setActivePost] = useState<Post | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavedLoading, setIsSavedLoading] = useState(false);
+  const [followListType, setFollowListType] = useState<"followers" | "following" | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | undefined>();
 
   useEffect(() => {
     let mounted = true;
@@ -85,6 +90,10 @@ export default function ProfilePage() {
           setProfileData(parsed);
           setEditableUser(parsed.user);
           setIsLoading(false);
+          // Set current user ID from cache
+          if (parsed.currentUserId) {
+            setCurrentUserId(parsed.currentUserId);
+          }
         } catch {
           // Invalid cache, continue to fetch
         }
@@ -96,6 +105,10 @@ export default function ProfilePage() {
         if (!mounted) return;
         setProfileData(data);
         setEditableUser(data.user);
+        // Set current user ID from response
+        if (data.currentUserId) {
+          setCurrentUserId(data.currentUserId);
+        }
         window.sessionStorage.setItem(profileCacheKey(rawUsername), JSON.stringify(data));
       } catch (error: unknown) {
         const axiosError = error as { response?: { status?: number } };
@@ -308,18 +321,26 @@ export default function ProfilePage() {
                     <p className="text-[18px] font-bold text-ink leading-tight">{editableUser.posts ?? posts.length}</p>
                     <p className="text-[13px] text-ink-3">posts</p>
                   </div>
-                  <div className="text-center sm:text-left">
+                  <button
+                    type="button"
+                    onClick={() => setFollowListType("followers")}
+                    className="text-center sm:text-left hover:opacity-70 transition-opacity"
+                  >
                     <p className="text-[18px] font-bold text-ink leading-tight">
                       {displayFollowers >= 1000 ? (displayFollowers / 1000).toFixed(1) + "k" : displayFollowers}
                     </p>
                     <p className="text-[13px] text-ink-3">followers</p>
-                  </div>
-                  <div className="text-center sm:text-left">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFollowListType("following")}
+                    className="text-center sm:text-left hover:opacity-70 transition-opacity"
+                  >
                     <p className="text-[18px] font-bold text-ink leading-tight">
                       {displayFollowing >= 1000 ? (displayFollowing / 1000).toFixed(1) + "k" : displayFollowing}
                     </p>
                     <p className="text-[13px] text-ink-3">following</p>
-                  </div>
+                  </button>
                 </div>
 
                 <p className="text-[15px] font-semibold text-ink">{editableUser.displayName}</p>
@@ -379,14 +400,27 @@ export default function ProfilePage() {
                           sizes="(max-width: 640px) 50vw, 280px"
                           className="object-cover group-hover:scale-110 transition-transform duration-300"
                         />
+                      ) : post.mediaUrl ? (
+                        <>
+                          <video
+                            src={post.mediaUrl}
+                            poster={post.thumbnailUrl}
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                            muted
+                            loop
+                            playsInline
+                            preload="auto"
+                            autoPlay
+                          />
+                          {/* Video indicator */}
+                          <div className="absolute top-2 right-2 bg-black/50 rounded-full p-1.5 pointer-events-none">
+                            <Play size={12} fill="white" className="text-white" />
+                          </div>
+                        </>
                       ) : (
-                        <video
-                          src={post.mediaUrl}
-                          poster={post.thumbnailUrl}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                          muted
-                          playsInline
-                        />
+                        <div className="w-full h-full bg-surface-3 flex items-center justify-center">
+                          <ImageIcon size={24} className="text-ink/30" />
+                        </div>
                       )}
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors rounded-xl flex items-center justify-center gap-4 opacity-0 group-hover:opacity-100">
                         <div className="flex items-center gap-1.5 text-white text-[14px] font-bold">
@@ -439,14 +473,26 @@ export default function ProfilePage() {
                           sizes="(max-width: 640px) 50vw, 280px"
                           className="object-cover group-hover:scale-110 transition-transform duration-300"
                         />
+                      ) : post.mediaUrl ? (
+                        <>
+                          <video
+                            src={post.mediaUrl}
+                            poster={post.thumbnailUrl}
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                            muted
+                            loop
+                            playsInline
+                            preload="auto"
+                            autoPlay
+                          />
+                          <div className="absolute top-2 right-2 bg-black/50 rounded-full p-1.5 pointer-events-none">
+                            <Play size={12} fill="white" className="text-white" />
+                          </div>
+                        </>
                       ) : (
-                        <video
-                          src={post.mediaUrl}
-                          poster={post.thumbnailUrl}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                          muted
-                          playsInline
-                        />
+                        <div className="w-full h-full bg-surface-3 flex items-center justify-center">
+                          <ImageIcon size={24} className="text-ink/30" />
+                        </div>
                       )}
                     </div>
                   ))}
@@ -472,6 +518,15 @@ export default function ProfilePage() {
         onSave={persistProfile}
       />
       <PostModal post={activePost} onClose={() => setActivePost(null)} />
+      {editableUser && (
+        <FollowListModal
+          isOpen={followListType !== null}
+          onClose={() => setFollowListType(null)}
+          userId={rawUsername}
+          type={followListType ?? "followers"}
+          currentUserId={currentUserId}
+        />
+      )}
     </>
   );
 }

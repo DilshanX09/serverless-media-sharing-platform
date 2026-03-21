@@ -4,7 +4,18 @@ import { PrismaClient } from "../generated/prisma/client";
 
 const connectionString = `${process.env.DATABASE_URL}`;
 
-const adapter = new PrismaPg({ connectionString });
-const prisma = new PrismaClient({ adapter });
+declare const globalThis: {
+  prismaGlobal: PrismaClient | undefined;
+} & typeof global;
+
+// Use singleton pattern to reuse connection across hot reloads in development
+const prisma = globalThis.prismaGlobal ?? (() => {
+  const adapter = new PrismaPg({ connectionString });
+  return new PrismaClient({ adapter });
+})();
+
+if (process.env.NODE_ENV !== "production") {
+  globalThis.prismaGlobal = prisma;
+}
 
 export { prisma };

@@ -66,6 +66,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     commentId,
     liked,
     totalLikes,
+    actorUserId: authResult.user.sub,
   });
 
   return NextResponse.json({ commentId, liked, totalLikes }, { status: 200 });

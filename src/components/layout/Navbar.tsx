@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Search,
@@ -17,6 +18,7 @@ import Avatar from "@/components/ui/Avatar";
 import CreatePostModal from "@/components/post/CreatePostModal";
 import { useTheme } from "next-themes";
 import type { User } from "@/types";
+import axios from "axios";
 
 interface NavbarProps {
   onPostPublished?: () => void;
@@ -29,7 +31,7 @@ export default function Navbar({
   onPostPublished,
   currentUserData,
   searchableUsersData,
-  isAuthLoading = false,
+  isAuthLoading: externalLoading = false,
 }: NavbarProps) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
@@ -37,11 +39,37 @@ export default function Navbar({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isMounted, setIsMounted] = useState(false);
+  const [internalUser, setInternalUser] = useState<User | null>(null);
+  const [internalLoading, setInternalLoading] = useState(!currentUserData);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { theme, resolvedTheme, setTheme } = useTheme();
 
-  const navUser = currentUserData;
+  // Use external user if provided, otherwise use internally fetched
+  const navUser = currentUserData ?? internalUser;
+  const isAuthLoading = currentUserData ? externalLoading : internalLoading;
+
+  // Fetch current user if not provided externally
+  useEffect(() => {
+    if (currentUserData) return;
+    let mounted = true;
+    const fetchUser = async () => {
+      try {
+        const res = await axios.get("/api/auth/me", { withCredentials: true });
+        if (mounted && res.data?.user) {
+          setInternalUser(res.data.user);
+        }
+      } catch {
+        // Not logged in
+      } finally {
+        if (mounted) setInternalLoading(false);
+      }
+    };
+    fetchUser();
+    return () => {
+      mounted = false;
+    };
+  }, [currentUserData]);
 
   const searchableUsers = useMemo(() => {
     if (!searchableUsersData) return [];
@@ -213,23 +241,23 @@ export default function Navbar({
           {/* Avatar */}
           <div className="ml-1">
             {navUser ? (
-              <div className="flex items-center gap-1.5">
-                <Avatar
-                  user={navUser}
-                  size="sm"
-                  onClick={() => router.push(`/profile/@${navUser.username}`)}
-                />
-              </div>
+              <Link
+                href={`/profile/@${navUser.username}`}
+                prefetch={true}
+                className="flex items-center gap-1.5"
+              >
+                <Avatar user={navUser} size="sm" />
+              </Link>
             ) : isAuthLoading ? (
               <div
-                className="w-[74px] h-9 rounded-xl bg-surface-2 animate-pulse"
+                className="w-[74px] h-9 rounded-full bg-surface-2 animate-pulse"
                 aria-hidden="true"
               />
             ) : (
               <button
                 type="button"
                 onClick={() => router.push("/login")}
-                className="px-3.5 py-2 rounded-xl bg-ink text-base text-[13px] font-semibold hover:opacity-90 transition-opacity"
+                className="px-3.5 py-2 rounded-full bg-ink text-base text-[13px] font-semibold hover:opacity-90 transition-opacity"
               >
                 Log in
               </button>

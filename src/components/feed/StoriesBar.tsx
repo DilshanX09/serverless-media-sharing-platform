@@ -4,10 +4,123 @@ import axios from "axios";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { Loader2, Maximize2, Minimize2, Pause, Play, Plus, Trash2, UserRound, Volume2, VolumeX } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, Pause, Play, Plus, Trash2, UserRound, Volume2, VolumeX, X, Upload } from "lucide-react";
 import type { Story } from "@/types";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/Toast";
+import { motion, AnimatePresence } from "framer-motion";
+
+interface StoryUploadModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  file: File | null;
+  onUpload: () => void;
+  isUploading: boolean;
+}
+
+function StoryUploadModal({ isOpen, onClose, file, onUpload, isUploading }: StoryUploadModalProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const isVideo = file?.type.startsWith("video/") ?? false;
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  if (!isOpen || !file) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ y: "100%", opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: "100%", opacity: 0 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className="bg-surface w-full sm:max-w-sm sm:rounded-xl max-h-[90vh] sm:max-h-[80vh] flex flex-col overflow-hidden sm:border sm:border-border-soft rounded-t-2xl sm:rounded-t-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border-soft">
+            <h2 className="text-[15px] font-semibold text-ink">Add Story</h2>
+            <button
+              onClick={onClose}
+              disabled={isUploading}
+              className="p-1.5 rounded-full hover:bg-surface-2 text-ink/60 hover:text-ink transition-colors disabled:opacity-50"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* Preview */}
+          <div className="flex-1 flex items-center justify-center p-4 bg-black/5 dark:bg-white/5 min-h-[300px]">
+            {previewUrl && (
+              isVideo ? (
+                <video
+                  src={previewUrl}
+                  controls
+                  className="max-w-full max-h-[50vh] rounded-lg"
+                  muted
+                  playsInline
+                />
+              ) : (
+                <Image
+                  src={previewUrl}
+                  alt="Preview"
+                  width={300}
+                  height={400}
+                  className="max-w-full max-h-[50vh] object-contain rounded-lg"
+                  unoptimized
+                />
+              )
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border-soft">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isUploading}
+              className="px-4 py-2 text-sm font-medium text-ink hover:bg-surface-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void onUpload()}
+              disabled={isUploading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-ink text-base rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4" />
+                  Upload Story
+                </>
+              )}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
 
 interface StoriesBarProps {
   stories?: Story[];
@@ -41,6 +154,7 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
   const [storyDeleteTarget, setStoryDeleteTarget] = useState<Story | null>(null);
   const [isDeletingStory, setIsDeletingStory] = useState(false);
   const [isSeekingStory, setIsSeekingStory] = useState(false);
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartScrollLeftRef = useRef(0);
@@ -262,14 +376,22 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSeekingStory]);
 
-  const handleStoryFileInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleStoryFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || isUploadingStory) return;
     const isImage = file.type.startsWith("image/");
     const isVideo = file.type.startsWith("video/");
     if (!isImage && !isVideo) return;
+    // Show preview modal instead of uploading directly
+    setPendingUploadFile(file);
+  };
 
+  const handleConfirmStoryUpload = async () => {
+    const file = pendingUploadFile;
+    if (!file || isUploadingStory) return;
+
+    const isVideo = file.type.startsWith("video/");
     setIsUploadingStory(true);
     try {
       const mediaType = isVideo ? "VIDEO" : "IMAGE";
@@ -292,6 +414,7 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
         { blobUrl: sasData.blobUrl, mediaType },
         { withCredentials: true }
       );
+      setPendingUploadFile(null);
       onStoryCreated?.();
       showToast("Story added!", "success");
     } catch {
@@ -334,30 +457,30 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
 
   return (
     <>
-      <div className="mb-6 relative">
+      <div className="mb-4 sm:mb-6 relative">
         <div
           ref={stripRef}
           onMouseDown={handleStripPointerDown}
           onMouseMove={handleStripPointerMove}
           onMouseUp={endStripPointerDrag}
           onMouseLeave={endStripPointerDrag}
-          className="flex gap-3 overflow-x-auto pb-3 cursor-grab active:cursor-grabbing select-none"
+          className="flex gap-3 overflow-x-auto pb-2 cursor-grab active:cursor-grabbing select-none"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           <div
-            className="flex flex-col items-center gap-2 flex-shrink-0 cursor-pointer group"
+            className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer group"
             onClick={() => fileInputRef.current?.click()}
           >
-            <div className="relative w-[74px] h-[74px] rounded-full bg-surface-2 flex items-center justify-center shadow-sm">
-              <span className="w-9 h-9 rounded-full flex items-center justify-center">
+            <div className="relative w-[66px] h-[66px] sm:w-[74px] sm:h-[74px] rounded-full bg-surface-2 flex items-center justify-center shadow-sm">
+              <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center">
                 {isUploadingStory ? (
-                  <Loader2 size={20} className="text-ink animate-spin" strokeWidth={2.5} />
+                  <Loader2 size={18} className="text-ink animate-spin sm:w-5 sm:h-5" strokeWidth={2.5} />
                 ) : (
-                  <Plus size={20} className="text-ink" strokeWidth={2.5} />
+                  <Plus size={18} className="text-ink sm:w-5 sm:h-5" strokeWidth={2.5} />
                 )}
               </span>
             </div>
-            <span className="text-[12px] text-ink-3 max-w-[74px] text-center truncate group-hover:text-ink-2 transition-colors">
+            <span className="text-[11px] sm:text-[12px] text-ink-3 max-w-[66px] sm:max-w-[74px] text-center truncate group-hover:text-ink-2 transition-colors">
               Your story
             </span>
           </div>
@@ -366,7 +489,7 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
             type="file"
             className="hidden"
             accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm,video/quicktime,video/mov"
-            onChange={(e) => void handleStoryFileInput(e)}
+            onChange={handleStoryFileInput}
           />
 
           {storyItems.map((story) => {
@@ -375,12 +498,12 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
             return (
               <div
                 key={story.id}
-                className="flex flex-col items-center gap-2 flex-shrink-0 cursor-pointer group"
+                className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer group"
                 onClick={() => openStory(story.id)}
               >
                 <div
                   className={[
-                    "w-[74px] h-[74px] rounded-full p-[2px] transition-all duration-200 hover:scale-105",
+                    "w-[66px] h-[66px] sm:w-[74px] sm:h-[74px] rounded-full p-[2px] transition-all duration-200 hover:scale-105",
                     isViewing ? "ring-2 ring-white/70" : "",
                   ].join(" ")}
                   style={{
@@ -420,7 +543,7 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
                 </div>
                 <span
                   className={[
-                    "text-[12px] max-w-[74px] text-center truncate transition-colors font-medium",
+                    "text-[11px] sm:text-[12px] max-w-[66px] sm:max-w-[74px] text-center truncate transition-colors font-medium",
                     isSeen ? "text-ink-3" : "text-ink-2",
                   ].join(" ")}
                 >
@@ -709,6 +832,14 @@ export default function StoriesBar({ stories, onStoryCreated, currentUserId }: S
           }
         }
       `}</style>
+
+      <StoryUploadModal
+        isOpen={pendingUploadFile !== null}
+        onClose={() => setPendingUploadFile(null)}
+        file={pendingUploadFile}
+        onUpload={handleConfirmStoryUpload}
+        isUploading={isUploadingStory}
+      />
     </>
   );
 }

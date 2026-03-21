@@ -3,16 +3,16 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import ChunkErrorHandler from "@/components/system/ChunkErrorHandler";
-import { Inter } from "next/font/google";
+import { DM_Sans } from "next/font/google";
 
 export const metadata: Metadata = {
-  title: "mini.insta — Share Your World",
+  title: "Mini Insta",
   description: "A minimal, beautiful photo sharing experience",
 };
 
-const inter = Inter({
+const dmSans = DM_Sans({
   subsets: ["latin", "latin-ext"],
-  weight: ["400", "500", "700"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export default function RootLayout({
@@ -22,7 +22,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`bg-base text-ink ${inter.className}`}>
+      <body className={`bg-base text-ink ${dmSans.className}`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
