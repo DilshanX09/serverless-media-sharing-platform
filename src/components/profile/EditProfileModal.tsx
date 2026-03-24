@@ -2,16 +2,17 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import NextImage from "next/image";
-import { X, Camera, Loader2, CheckCircle } from "lucide-react";
+import { X, Camera, Loader2, CheckCircle, UserRound } from "lucide-react";
 import type { User } from "@/types";
 import Cropper, { type Area } from "react-easy-crop";
 import { getCroppedImg } from "@/lib/cropImage";
+import { logError } from "@/lib/logger";
 
 interface EditProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User;
-  onSave: (nextUser: Partial<User>) => void;
+  onSave: (nextUser: Partial<User>) => Promise<void> | void;
 }
 
 export default function EditProfileModal({
@@ -24,8 +25,6 @@ export default function EditProfileModal({
   const [fullName, setFullName] = useState(user.displayName);
   const [username, setUsername] = useState(user.username);
   const [bio, setBio] = useState(user.bio ?? "");
-  const [mobileNumber, setMobileNumber] = useState("");
-  const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "success">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -81,7 +80,7 @@ export default function EditProfileModal({
       setAvatarUrl(croppedImage);
       setIsCropping(false);
     } catch (e) {
-      console.error(e);
+      logError("Failed to crop image", e);
       alert("Failed to crop image.");
     }
   };
@@ -91,23 +90,24 @@ export default function EditProfileModal({
     setOriginalImageUrl("");
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("saving");
-    onSave({
-      displayName: fullName.trim(),
-      username: username.trim(),
-      bio: bio.trim(),
-      avatarUrl: avatarUrl || undefined,
-      avatarInitial: (fullName.trim()[0] || username.trim()[0] || "U").toUpperCase(),
-    });
-    // Simulate save
-    setTimeout(() => {
+    try {
+      await onSave({
+        displayName: fullName.trim(),
+        bio: bio.trim(),
+        avatarUrl: avatarUrl || undefined,
+        avatarInitial: (fullName.trim()[0] || username.trim()[0] || "U").toUpperCase(),
+      });
       setStatus("success");
       setTimeout(() => {
         handleClose();
       }, 1500);
-    }, 1200);
+    } catch {
+      setStatus("idle");
+      alert("Failed to save profile.");
+    }
   };
 
   if (!isOpen) return null;
@@ -211,7 +211,7 @@ export default function EditProfileModal({
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-ink-3 text-2xl font-bold uppercase pb-1">
-                      {username[0]}
+                      {username?.[0] ? username[0] : <UserRound size={24} />}
                     </div>
                   )}
                 </div>
@@ -254,10 +254,8 @@ export default function EditProfileModal({
                   <input
                     type="text"
                     value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="username"
-                    required
-                    className="w-full bg-base border border-border-mid rounded-xl pl-9 pr-4 py-3 text-[14px] text-ink placeholder-ink-3 outline-none focus:border-brand/40 focus:bg-surface transition-all"
+                    readOnly
+                    className="w-full bg-surface-2 border border-border-soft rounded-xl pl-9 pr-4 py-3 text-[14px] text-ink-2"
                   />
                 </div>
               </div>
@@ -278,33 +276,6 @@ export default function EditProfileModal({
                 />
               </div>
 
-              <div>
-                <label className="block text-[12px] font-semibold text-ink-3 uppercase tracking-wide mb-1.5 ml-1">
-                  Mobile Number
-                </label>
-                <input
-                  type="tel"
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value)}
-                  placeholder="+1 (555) 000-0000"
-                  className="w-full bg-base border border-border-mid rounded-xl px-4 py-3 text-[14px] text-ink placeholder-ink-3 outline-none focus:border-brand/40 focus:bg-surface transition-all"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1.5 ml-1 mr-1">
-                  <label className="text-[12px] font-semibold text-ink-3 uppercase tracking-wide">
-                    New Password
-                  </label>
-                </div>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Leave blank to keep current"
-                  className="w-full bg-base border border-border-mid rounded-xl px-4 py-3 text-[14px] text-ink placeholder-ink-3 outline-none focus:border-brand/40 focus:bg-surface transition-all"
-                />
-              </div>
             </div>
 
             <button

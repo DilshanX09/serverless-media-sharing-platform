@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import NextImage from "next/image";
 import {
   X,
@@ -16,11 +17,13 @@ import {
   Upload,
   RefreshCw,
 } from "lucide-react";
+import { useToast } from "@/components/ui/Toast";
 
 interface CreatePostModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialType?: "post" | "reel";
+  onPublished?: () => void;
 }
 
 type Step = "select" | "preview" | "details" | "publishing" | "done";
@@ -42,6 +45,7 @@ export default function CreatePostModal({
   isOpen,
   onClose,
   initialType = "post",
+  onPublished,
 }: CreatePostModalProps) {
   const [step, setStep] = useState<Step>("select");
   const [media, setMedia] = useState<MediaFile | null>(null);
@@ -49,8 +53,11 @@ export default function CreatePostModal({
   const [tags, setTags] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [captionCount, setCaptionCount] = useState(0);
+  const [publishError, setPublishError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const router = useRouter();
+  const { showToast } = useToast();
 
   const handleClose = useCallback(() => {
     if (media?.url) URL.revokeObjectURL(media.url);
@@ -58,6 +65,7 @@ export default function CreatePostModal({
     setCaption("");
     setTags("");
     setStep("select");
+    setPublishError(null);
     setIsDragging(false);
     onClose();
   }, [media?.url, onClose]);
@@ -83,7 +91,11 @@ export default function CreatePostModal({
     const isImage = file.type.startsWith("image/");
     const isVideo = file.type.startsWith("video/");
     if (!isImage && !isVideo) {
-      alert("Please select an image or video file.");
+      showToast("Please select an image or video file", "error");
+      return;
+    }
+    if (initialType === "reel" && !isVideo) {
+      showToast("Reels must be uploaded as video", "error");
       return;
     }
     if (media?.url) URL.revokeObjectURL(media.url);
@@ -96,7 +108,7 @@ export default function CreatePostModal({
       sizeLabel: formatBytes(file.size),
     });
     setStep("preview");
-  }, [media?.url]);
+  }, [initialType, media?.url, showToast]);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -118,10 +130,76 @@ export default function CreatePostModal({
 
   const handleDragLeave = () => setIsDragging(false);
 
-  const handlePublish = () => {
+  const handlePublish = async () => {
+    if (!media) return;
+    setPublishError(null);
     setStep("publishing");
-    // Simulate upload
-    setTimeout(() => setStep("done"), 2200);
+
+    try {
+      const normalizedTags = tags
+        .split(/\s+/)
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`));
+      const captionBase = caption.trim();
+      const fullCaption = [captionBase, normalizedTags.join(" ")].filter(Boolean).join("\n\n");
+      const mediaType = media.type === "video" ? "VIDEO" : "IMAGE";
+      const sasResponse = await fetch("/api/upload/sas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          fileName: media.name,
+          mediaType,
+        }),
+      });
+      if (!sasResponse.ok) {
+        const payload = (await sasResponse.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || "Failed to request upload URL.");
+      }
+
+      const sasData = (await sasResponse.json()) as {
+        uploadUrl: string;
+        blobUrl: string;
+      };
+
+      const uploadResponse = await fetch(sasData.uploadUrl, {
+        method: "PUT",
+        headers: {
+          "x-ms-blob-type": "BlockBlob",
+          "Content-Type": media.file.type || "application/octet-stream",
+        },
+        body: media.file,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error("Blob upload failed.");
+      }
+
+      const postResponse = await fetch("/api/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          blobUrl: sasData.blobUrl,
+          mediaType,
+          caption: fullCaption,
+        }),
+      });
+      if (!postResponse.ok) {
+        const payload = (await postResponse.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || "Failed to create post.");
+      }
+
+      setStep("done");
+      router.refresh();
+      onPublished?.();
+      showToast("Post published successfully!", "success");
+    } catch (error) {
+      setStep("details");
+      const msg = error instanceof Error ? error.message : "Failed to publish post.";
+      setPublishError(msg);
+      showToast(msg, "error");
+    }
   };
 
   const acceptTypes =
@@ -398,6 +476,12 @@ export default function CreatePostModal({
               {/* Right: Form */}
               <div className="flex-1 flex flex-col overflow-y-auto">
                 <div className="p-5 space-y-4 flex-1">
+                  {publishError ? (
+                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-[13px] text-red-200">
+                      {publishError}
+                    </div>
+                  ) : null}
+
                   {/* Caption */}
                   <div>
                     <label className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3 uppercase tracking-wide mb-2">
@@ -530,7 +614,10 @@ export default function CreatePostModal({
             </div>
             <button
               type="button"
-              onClick={handleClose}
+              onClick={() => {
+                handleClose();
+                router.refresh();
+              }}
               className="mt-2 px-8 py-2.5 bg-ink hover:opacity-90 text-base text-[14px] font-bold rounded-xl transition-all"
             >
               Done

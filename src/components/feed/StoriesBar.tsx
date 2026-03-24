@@ -1,11 +1,139 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
-import { Loader2, Pause, Play, Plus, Volume2, VolumeX } from "lucide-react";
-import { mockStories } from "@/lib/mockData";
+import axios from "axios";
 
-export default function StoriesBar() {
+import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import { Loader2, Maximize2, Minimize2, Pause, Play, Plus, Trash2, UserRound, Volume2, VolumeX, X, Upload } from "lucide-react";
+import type { Story } from "@/types";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
+import { motion, AnimatePresence } from "framer-motion";
+
+interface StoryUploadModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  file: File | null;
+  onUpload: () => void;
+  isUploading: boolean;
+}
+
+function StoryUploadModal({ isOpen, onClose, file, onUpload, isUploading }: StoryUploadModalProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const isVideo = file?.type.startsWith("video/") ?? false;
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  if (!isOpen || !file) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ y: "100%", opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: "100%", opacity: 0 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className="bg-surface w-full sm:max-w-sm sm:rounded-xl max-h-[90vh] sm:max-h-[80vh] flex flex-col overflow-hidden sm:border sm:border-border-soft rounded-t-2xl sm:rounded-t-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border-soft">
+            <h2 className="text-[15px] font-semibold text-ink">Add Story</h2>
+            <button
+              onClick={onClose}
+              disabled={isUploading}
+              className="p-1.5 rounded-full hover:bg-surface-2 text-ink/60 hover:text-ink transition-colors disabled:opacity-50"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* Preview */}
+          <div className="flex-1 flex items-center justify-center p-4 bg-black/5 dark:bg-white/5 min-h-[300px]">
+            {previewUrl && (
+              isVideo ? (
+                <video
+                  src={previewUrl}
+                  controls
+                  className="max-w-full max-h-[50vh] rounded-lg"
+                  muted
+                  playsInline
+                />
+              ) : (
+                <Image
+                  src={previewUrl}
+                  alt="Preview"
+                  width={300}
+                  height={400}
+                  className="max-w-full max-h-[50vh] object-contain rounded-lg"
+                  unoptimized
+                />
+              )
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border-soft">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isUploading}
+              className="px-4 py-2 text-sm font-medium text-ink hover:bg-surface-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void onUpload()}
+              disabled={isUploading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-ink text-base rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4" />
+                  Upload Story
+                </>
+              )}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+interface StoriesBarProps {
+  stories?: Story[];
+  onStoryCreated?: () => void;
+  currentUserId?: string;
+}
+
+export default function StoriesBar({ stories, onStoryCreated, currentUserId }: StoriesBarProps) {
+  const { showToast } = useToast();
+  const storyItems = useMemo(
+    () => (stories ?? []).filter((story) => Boolean(story.mediaUrl)),
+    [stories]
+  );
   const [watched, setWatched] = useState<Set<string>>(new Set());
   const [viewingStory, setViewingStory] = useState<string | null>(null);
   const [storyDurationMs, setStoryDurationMs] = useState(7000);
@@ -14,10 +142,19 @@ export default function StoriesBar() {
   const [viewerVideoReady, setViewerVideoReady] = useState(false);
   const [viewerVideoProgress, setViewerVideoProgress] = useState(0);
   const [viewerMuted, setViewerMuted] = useState(true);
+  const [viewerFitMode, setViewerFitMode] = useState<"fit" | "fill">("fit");
+  const [nowTick, setNowTick] = useState(Date.now());
   const storyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const viewerVideoRef = useRef<HTMLVideoElement>(null);
+  const storySeekBarRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingStory, setIsUploadingStory] = useState(false);
+  const [storyDeleteTarget, setStoryDeleteTarget] = useState<Story | null>(null);
+  const [isDeletingStory, setIsDeletingStory] = useState(false);
+  const [isSeekingStory, setIsSeekingStory] = useState(false);
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
   const isDraggingRef = useRef(false);
   const dragStartXRef = useRef(0);
   const dragStartScrollLeftRef = useRef(0);
@@ -27,6 +164,25 @@ export default function StoriesBar() {
     if (controlTimeoutRef.current) clearTimeout(controlTimeoutRef.current);
     setViewingStory(null);
   };
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem("mini_insta_story_seen");
+    if (!raw) return;
+    const ids = raw.split(",").filter(Boolean);
+    setWatched(new Set(ids));
+  }, []);
+
+  useEffect(() => {
+    if (!storyItems.length) return;
+    setWatched((prev) => {
+      const validIds = new Set(storyItems.map((story) => story.id));
+      const next = new Set(Array.from(prev).filter((id) => validIds.has(id)));
+      if (next.size !== prev.size) {
+        window.localStorage.setItem("mini_insta_story_seen", Array.from(next).join(","));
+      }
+      return next;
+    });
+  }, [storyItems]);
 
   const scheduleClose = (durationMs: number) => {
     if (storyTimeoutRef.current) clearTimeout(storyTimeoutRef.current);
@@ -40,15 +196,20 @@ export default function StoriesBar() {
   const openStory = (id: string) => {
     if (storyTimeoutRef.current) clearTimeout(storyTimeoutRef.current);
     if (controlTimeoutRef.current) clearTimeout(controlTimeoutRef.current);
-    setWatched((prev) => new Set([...prev, id]));
+    setWatched((prev) => {
+      const next = new Set([...prev, id]);
+      window.localStorage.setItem("mini_insta_story_seen", Array.from(next).join(","));
+      return next;
+    });
     setViewingStory(id);
-    const story = mockStories.find((s) => s.id === id);
+    const story = storyItems.find((s) => s.id === id);
     const isVideo = story?.mediaType === "video";
     setViewerVideoPlaying(false);
     setViewerControlVisible(!isVideo);
     setViewerVideoReady(!isVideo);
     setViewerVideoProgress(0);
     setViewerMuted(true);
+    setViewerFitMode("fit");
     setStoryDurationMs(7000);
     if (!isVideo) scheduleClose(7000);
   };
@@ -105,7 +266,12 @@ export default function StoriesBar() {
   };
 
   useEffect(() => {
-    const preloadVideoEls = mockStories
+    const timer = window.setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const preloadVideoEls = storyItems
       .filter((s) => s.mediaType === "video")
       .map((s) => {
         const video = document.createElement("video");
@@ -122,7 +288,7 @@ export default function StoriesBar() {
         video.load();
       });
     };
-  }, []);
+  }, [storyItems]);
 
   useEffect(() => {
     const stripEl = stripRef.current;
@@ -157,44 +323,187 @@ export default function StoriesBar() {
     isDraggingRef.current = false;
   };
 
+  const handleStorySeek = (clientX: number) => {
+    const video = viewerVideoRef.current;
+    const bar = storySeekBarRef.current;
+    if (!video || !bar) return;
+    const rect = bar.getBoundingClientRect();
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    const percent = x / rect.width;
+    const newTime = percent * video.duration;
+    if (Number.isFinite(newTime)) {
+      video.currentTime = newTime;
+      setViewerVideoProgress(percent * 100);
+    }
+  };
+
+  const handleStorySeekStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
+    setIsSeekingStory(true);
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    handleStorySeek(clientX);
+  };
+
+  const handleStorySeekMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isSeekingStory) return;
+    e.stopPropagation();
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    handleStorySeek(clientX);
+  };
+
+  const handleStorySeekEnd = () => {
+    setIsSeekingStory(false);
+    revealViewerControl(true);
+  };
+
+  useEffect(() => {
+    if (!isSeekingStory) return;
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+      handleStorySeek(clientX);
+    };
+    const handleEnd = () => handleStorySeekEnd();
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleEnd);
+    window.addEventListener("touchmove", handleMove);
+    window.addEventListener("touchend", handleEnd);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleEnd);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleEnd);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSeekingStory]);
+
+  const handleStoryFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || isUploadingStory) return;
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    if (!isImage && !isVideo) return;
+    // Show preview modal instead of uploading directly
+    setPendingUploadFile(file);
+  };
+
+  const handleConfirmStoryUpload = async () => {
+    const file = pendingUploadFile;
+    if (!file || isUploadingStory) return;
+
+    const isVideo = file.type.startsWith("video/");
+    setIsUploadingStory(true);
+    try {
+      const mediaType = isVideo ? "VIDEO" : "IMAGE";
+      const sasResponse = await axios.post(
+        "/api/upload/sas",
+        { fileName: file.name, mediaType },
+        { withCredentials: true }
+      );
+      const sasData = sasResponse.data as { uploadUrl: string; blobUrl: string };
+
+      await axios.put(sasData.uploadUrl, file, {
+        headers: {
+          "x-ms-blob-type": "BlockBlob",
+          "Content-Type": file.type || "application/octet-stream",
+        },
+      });
+
+      await axios.post(
+        "/api/stories/active",
+        { blobUrl: sasData.blobUrl, mediaType },
+        { withCredentials: true }
+      );
+      setPendingUploadFile(null);
+      onStoryCreated?.();
+      showToast("Story added!", "success");
+    } catch {
+      showToast("Failed to upload story", "error");
+    } finally {
+      setIsUploadingStory(false);
+    }
+  };
+
+  const formatStoryTime = (createdAt?: string): string => {
+    if (!createdAt) return "now";
+    const diffMs = nowTick - new Date(createdAt).getTime();
+    const minutes = Math.floor(diffMs / (1000 * 60));
+    if (minutes < 1) return "now";
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  };
+
+  const handleConfirmStoryDelete = async () => {
+    if (!storyDeleteTarget) return;
+    setIsDeletingStory(true);
+    try {
+      await axios.delete("/api/stories/active", {
+        data: { storyId: storyDeleteTarget.id },
+        withCredentials: true,
+      });
+      closeStory();
+      setStoryDeleteTarget(null);
+      onStoryCreated?.();
+      showToast("Story deleted", "success");
+    } catch {
+      showToast("Failed to delete story", "error");
+    } finally {
+      setIsDeletingStory(false);
+    }
+  };
+
   return (
     <>
-      <div className="mb-6 relative">
+      <div className="mb-4 sm:mb-6 relative">
         <div
           ref={stripRef}
           onMouseDown={handleStripPointerDown}
           onMouseMove={handleStripPointerMove}
           onMouseUp={endStripPointerDrag}
           onMouseLeave={endStripPointerDrag}
-          className="flex gap-3 overflow-x-auto pb-3 cursor-grab active:cursor-grabbing select-none"
+          className="flex gap-3 overflow-x-auto pb-2 cursor-grab active:cursor-grabbing select-none"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           <div
-            className="flex flex-col items-center gap-2 flex-shrink-0 cursor-pointer group"
-            onClick={() => alert("Add story coming soon!")}
+            className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer group"
+            onClick={() => fileInputRef.current?.click()}
           >
-            <div className="relative w-[74px] h-[74px] rounded-full bg-surface-2 flex items-center justify-center shadow-sm">
-              <span className="w-9 h-9 rounded-full flex items-center justify-center">
-                <Plus size={20} className="text-ink" strokeWidth={2.5} />
+            <div className="relative w-[66px] h-[66px] sm:w-[74px] sm:h-[74px] rounded-full bg-surface-2 flex items-center justify-center shadow-sm">
+              <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center">
+                {isUploadingStory ? (
+                  <Loader2 size={18} className="text-ink animate-spin sm:w-5 sm:h-5" strokeWidth={2.5} />
+                ) : (
+                  <Plus size={18} className="text-ink sm:w-5 sm:h-5" strokeWidth={2.5} />
+                )}
               </span>
             </div>
-            <span className="text-[12px] text-ink-3 max-w-[74px] text-center truncate group-hover:text-ink-2 transition-colors">
+            <span className="text-[11px] sm:text-[12px] text-ink-3 max-w-[66px] sm:max-w-[74px] text-center truncate group-hover:text-ink-2 transition-colors">
               Your story
             </span>
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm,video/quicktime,video/mov"
+            onChange={handleStoryFileInput}
+          />
 
-          {mockStories.map((story) => {
+          {storyItems.map((story) => {
             const isSeen = story.seen || watched.has(story.id);
             const isViewing = viewingStory === story.id;
             return (
               <div
                 key={story.id}
-                className="flex flex-col items-center gap-2 flex-shrink-0 cursor-pointer group"
+                className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer group"
                 onClick={() => openStory(story.id)}
               >
                 <div
                   className={[
-                    "w-[74px] h-[74px] rounded-full p-[2px] transition-all duration-200 hover:scale-105",
+                    "w-[66px] h-[66px] sm:w-[74px] sm:h-[74px] rounded-full p-[2px] transition-all duration-200 hover:scale-105",
                     isViewing ? "ring-2 ring-white/70" : "",
                   ].join(" ")}
                   style={{
@@ -204,16 +513,22 @@ export default function StoriesBar() {
                   }}
                 >
                   <div className="w-full h-full rounded-full overflow-hidden relative bg-surface">
-                    <Image
-                      src={story.thumbnailUrl ?? story.mediaUrl}
-                      alt={story.username}
-                      fill
-                      sizes="74px"
-                      className={[
-                        "object-cover",
-                        isSeen ? "opacity-75" : "opacity-100",
-                      ].join(" ")}
-                    />
+                    {story.avatarUrl || story.thumbnailUrl || story.mediaUrl ? (
+                      <Image
+                        src={story.avatarUrl ?? story.thumbnailUrl ?? story.mediaUrl}
+                        alt={story.username}
+                        fill
+                        sizes="74px"
+                        className={[
+                          "object-cover",
+                          isSeen ? "opacity-75" : "opacity-100",
+                        ].join(" ")}
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-surface-2 flex items-center justify-center">
+                        <UserRound size={16} className="text-ink-3" />
+                      </div>
+                    )}
                     {story.mediaType === "video" && (
                       <span className="absolute inset-0 flex items-center justify-center">
                         <span className="w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
@@ -228,7 +543,7 @@ export default function StoriesBar() {
                 </div>
                 <span
                   className={[
-                    "text-[12px] max-w-[74px] text-center truncate transition-colors font-medium",
+                    "text-[11px] sm:text-[12px] max-w-[66px] sm:max-w-[74px] text-center truncate transition-colors font-medium",
                     isSeen ? "text-ink-3" : "text-ink-2",
                   ].join(" ")}
                 >
@@ -238,13 +553,12 @@ export default function StoriesBar() {
             );
           })}
         </div>
-        <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-base to-transparent" />
         <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-base to-transparent" />
       </div>
 
       {viewingStory &&
         (() => {
-          const story = mockStories.find((s) => s.id === viewingStory);
+           const story = storyItems.find((s) => s.id === viewingStory);
           if (!story) return null;
           return (
             <div
@@ -252,10 +566,11 @@ export default function StoriesBar() {
               onClick={closeStory}
             >
               <div
-                className="relative w-full max-w-[410px] mx-4 aspect-[9/16] bg-surface rounded-3xl overflow-hidden flex flex-col items-center justify-center shadow-2xl"
+                className="relative w-full max-w-[92vw] h-[92vh] mx-4 bg-surface rounded-3xl overflow-hidden flex flex-col items-center justify-center shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="absolute top-4 left-4 right-4 h-[3px] bg-white/20 rounded-full overflow-hidden">
+                {/* Progress bar for images, or non-interactive indicator for videos */}
+                <div className="absolute z-30 top-4 left-4 right-4 h-[3px] bg-white/20 rounded-full overflow-hidden">
                   {story.mediaType === "video" ? (
                     <div
                       className="h-full bg-white rounded-full transition-[width] duration-150"
@@ -272,10 +587,10 @@ export default function StoriesBar() {
                   )}
                 </div>
 
-                <div className="absolute top-10 left-4 right-4 flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-full border-2 border-white/70 overflow-hidden">
+                <div className="absolute z-30 top-10 left-4 right-4 flex items-center gap-2.5">
+                  <div className="relative w-9 h-9 rounded-full border-2 border-white/70 overflow-hidden">
                     <Image
-                      src={story.thumbnailUrl ?? story.mediaUrl}
+                      src={story.avatarUrl ?? story.thumbnailUrl ?? story.mediaUrl}
                       alt={story.username}
                       fill
                       sizes="36px"
@@ -286,23 +601,35 @@ export default function StoriesBar() {
                     <p className="text-[14px] font-semibold text-white">
                       {story.username}
                     </p>
-                    <p className="text-[11px] text-white/50">Just now</p>
+                    <p className="text-[11px] text-white/50">{formatStoryTime(story.createdAt)}</p>
                   </div>
+                  {story.authorId === currentUserId ? (
+                    <button
+                      type="button"
+                      onClick={() => setStoryDeleteTarget(story)}
+                      className="ml-auto w-8 h-8 rounded-full bg-black/35 border border-white/25 flex items-center justify-center hover:bg-black/45 transition-colors"
+                      title="Delete story"
+                    >
+                      <Trash2 size={14} className="text-white" />
+                    </button>
+                  ) : null}
                 </div>
 
                 {story.mediaType === "image" ? (
-                  <Image
-                    src={story.mediaUrl}
-                    alt={story.username}
-                    fill
-                    sizes="(max-width: 768px) 100vw, 410px"
-                    className="object-cover"
-                  />
+                  <div className="absolute inset-0 z-0 w-full h-full flex items-center justify-center bg-black">
+                    <Image
+                      src={story.mediaUrl}
+                      alt={story.username}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 92vw"
+                      className={viewerFitMode === "fit" ? "object-contain" : "object-cover"}
+                    />
+                  </div>
                 ) : (
                   <video
                     ref={viewerVideoRef}
                     src={story.mediaUrl}
-                    className="w-full h-full object-cover"
+                    className={`absolute inset-0 z-0 w-full h-full bg-black ${viewerFitMode === "fit" ? "object-contain" : "object-cover"}`}
                     autoPlay
                     muted={viewerMuted}
                     preload="auto"
@@ -348,6 +675,27 @@ export default function StoriesBar() {
                   />
                 )}
 
+                <div
+                  className={[
+                    "absolute z-30 right-4 bottom-16 transition-opacity duration-200",
+                    story.mediaType === "video" ? (viewerControlVisible && viewerVideoReady ? "opacity-100" : "opacity-0 pointer-events-none") : "opacity-100",
+                  ].join(" ")}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setViewerFitMode((prev) => (prev === "fit" ? "fill" : "fit"))}
+                    className="w-10 h-10 rounded-full bg-black/35 backdrop-blur border border-white/25 flex items-center justify-center hover:bg-black/45 transition-colors"
+                    aria-label={viewerFitMode === "fit" ? "Fill screen" : "Fit media"}
+                    title={viewerFitMode === "fit" ? "Fill screen" : "Fit media"}
+                  >
+                    {viewerFitMode === "fit" ? (
+                      <Maximize2 size={17} className="text-white" />
+                    ) : (
+                      <Minimize2 size={17} className="text-white" />
+                    )}
+                  </button>
+                </div>
+
                 {story.mediaType === "video" && (
                   <>
                     <div
@@ -390,7 +738,7 @@ export default function StoriesBar() {
 
                     <div
                       className={[
-                        "absolute right-4 bottom-16 transition-opacity duration-200",
+                        "absolute z-30 right-4 bottom-28 transition-opacity duration-200",
                         viewerControlVisible && viewerVideoReady
                           ? "opacity-100"
                           : "opacity-0 pointer-events-none",
@@ -409,10 +757,44 @@ export default function StoriesBar() {
                         )}
                       </button>
                     </div>
+
+                    {/* Video Seekbar */}
+                    <div
+                      className={[
+                        "absolute z-30 bottom-20 left-4 right-4 transition-opacity duration-200",
+                        viewerControlVisible && viewerVideoReady
+                          ? "opacity-100"
+                          : "opacity-0 pointer-events-none",
+                      ].join(" ")}
+                    >
+                      <div
+                        ref={storySeekBarRef}
+                        className="h-6 flex items-center cursor-pointer select-none"
+                        onMouseDown={handleStorySeekStart}
+                        onTouchStart={handleStorySeekStart}
+                        onMouseMove={handleStorySeekMove}
+                        onTouchMove={handleStorySeekMove}
+                      >
+                        <div className="relative w-full h-1.5 bg-white/30 rounded-full overflow-hidden">
+                          <div
+                            className="absolute inset-y-0 left-0 bg-white rounded-full"
+                            style={{ width: `${viewerVideoProgress}%` }}
+                          />
+                        </div>
+                        {/* Custom thumb */}
+                        <div
+                          className="absolute w-4 h-4 bg-white rounded-full shadow-md pointer-events-none transition-transform"
+                          style={{
+                            left: `${viewerVideoProgress}%`,
+                            transform: "translateX(-50%)",
+                          }}
+                        />
+                      </div>
+                    </div>
                   </>
                 )}
 
-                <div className="absolute bottom-5 left-4 right-4">
+                <div className="absolute z-30 bottom-5 left-4 right-4">
                   <p className="text-[14px] text-white/80 font-medium">
                     {story.username}&apos;s story
                   </p>
@@ -425,6 +807,21 @@ export default function StoriesBar() {
           );
         })()}
 
+      <ConfirmModal
+        isOpen={Boolean(storyDeleteTarget)}
+        title="Delete story"
+        description="This story will be removed immediately and cannot be undone."
+        confirmLabel={isDeletingStory ? "Deleting..." : "Delete"}
+        cancelLabel="Cancel"
+        isConfirming={isDeletingStory}
+        onConfirm={() => void handleConfirmStoryDelete()}
+        onCancel={() => {
+          if (isDeletingStory) return;
+          setStoryDeleteTarget(null);
+        }}
+        tone="danger"
+      />
+
       <style jsx>{`
         @keyframes storyProgress {
           from {
@@ -435,6 +832,14 @@ export default function StoriesBar() {
           }
         }
       `}</style>
+
+      <StoryUploadModal
+        isOpen={pendingUploadFile !== null}
+        onClose={() => setPendingUploadFile(null)}
+        file={pendingUploadFile}
+        onUpload={handleConfirmStoryUpload}
+        isUploading={isUploadingStory}
+      />
     </>
   );
 }

@@ -1,23 +1,41 @@
 "use client";
 
+import axios from "axios";
+
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/Toast";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { showToast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate login
-    setTimeout(() => {
+    setError("");
+
+    try {
+      await axios.post(
+        "/api/auth/login",
+        { email, password },
+        { withCredentials: true }
+      );
       setIsLoading(false);
+      showToast("Welcome back!", "success");
       router.push("/");
-    }, 1200);
+    } catch (err: unknown) {
+      setIsLoading(false);
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      const msg = axiosErr.response?.data?.error || "Unable to log in. Please try again.";
+      setError(msg);
+      showToast(msg, "error");
+    }
   };
 
   return (
@@ -79,6 +97,8 @@ export default function LoginPage() {
           >
             {isLoading ? "Logging in..." : "Log in"}
           </button>
+
+          {error ? <p className="text-[13px] text-red-500 font-medium">{error}</p> : null}
         </form>
 
         <p className="text-left text-[14px] text-ink-3 mt-9">

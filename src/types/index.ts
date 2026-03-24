@@ -44,13 +44,18 @@ export interface Post {
 export interface SuggestedUser extends User {
   mutualFriends?: number;
   reason: string;
+  isFollowing?: boolean;
+  isFollowedBy?: boolean;
 }
 
 export interface Story {
   id: string;
+  authorId?: string;
   username: string;
+  avatarUrl?: string;
   mediaType: "image" | "video";
   mediaUrl: string;
   thumbnailUrl?: string;
+  createdAt?: string;
   seen: boolean;
 }
