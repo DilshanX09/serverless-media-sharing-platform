@@ -9,6 +9,7 @@ import {
   MessageCircle,
   Send,
   Bookmark,
+  X,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -21,6 +22,8 @@ import Avatar from "@/components/ui/Avatar";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/Toast";
 import VideoPlayer from "@/components/ui/VideoPlayer";
+import Image from "next/image";
+import { playLikeSound, playSendSound } from "@/lib/uiSounds";
 
 interface PostCardProps {
   post: Post;
@@ -29,6 +32,38 @@ interface PostCardProps {
   onPostUpdated?: (postId: string, patch: Partial<Post>) => void;
   currentUserId?: string;
   onPostDeleted?: (postId: string) => void;
+}
+
+const captionUrlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+function renderCaptionWithLinks(text: string) {
+  const parts = text.split(captionUrlRegex);
+  return parts.map((part, index) => {
+    if (!part) return null;
+    const isUrl = /^(https?:\/\/|www\.)/i.test(part);
+    if (!isUrl) return <span key={`caption-text-${index}`}>{part}</span>;
+
+    const trailing = part.match(/[.,!?;:)\]]+$/)?.[0] ?? "";
+    const cleanPart = trailing ? part.slice(0, -trailing.length) : part;
+    const href = cleanPart.startsWith("http")
+      ? cleanPart
+      : `https://${cleanPart}`;
+
+    return (
+      <span key={`caption-link-${index}`}>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          className="text-blue-500 hover:text-blue-400 underline underline-offset-2 break-all"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {cleanPart}
+        </a>
+        {trailing}
+      </span>
+    );
+  });
 }
 
 function formatCount(n: number): string {
@@ -51,14 +86,24 @@ export default function PostCard({
   const [isSaveSubmitting, setIsSaveSubmitting] = useState(false);
   const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
   const [isUpdateSubmitting, setIsUpdateSubmitting] = useState(false);
+  const [isFollowSubmitting, setIsFollowSubmitting] = useState(false);
   const [isOwnerMenuOpen, setIsOwnerMenuOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isProfilePreviewOpen, setIsProfilePreviewOpen] = useState(false);
+  const [isFollowingUser, setIsFollowingUser] = useState(
+    post.user.isFollowing ?? false,
+  );
   const [editCaption, setEditCaption] = useState(post.caption);
   const [isMediaLoading, setIsMediaLoading] = useState(true);
   const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
+  const [showLikeBurst, setShowLikeBurst] = useState(false);
+  const [likeBurstKey, setLikeBurstKey] = useState(0);
   const [mediaLoadKey, setMediaLoadKey] = useState(0);
   const mediaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const likeBurstTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const ownerMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { showToast } = useToast();
@@ -89,9 +134,17 @@ export default function PostCard({
     setLiked(post.isLiked ?? false);
     setLikes(post.likes);
     setSaved(post.isSaved ?? false);
+    setIsFollowingUser(post.user.isFollowing ?? false);
     setEditCaption(post.caption);
     setIsCaptionExpanded(false);
-  }, [post.id, post.caption, post.isLiked, post.likes, post.isSaved]);
+  }, [
+    post.id,
+    post.caption,
+    post.isLiked,
+    post.likes,
+    post.isSaved,
+    post.user.isFollowing,
+  ]);
 
   useEffect(() => {
     // Reset loading state for new media
@@ -120,6 +173,25 @@ export default function PostCard({
     return () => window.removeEventListener("mousedown", onClickOutside);
   }, [isOwnerMenuOpen]);
 
+  useEffect(() => {
+    return () => {
+      if (likeBurstTimeoutRef.current) {
+        clearTimeout(likeBurstTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const triggerLikeBurst = () => {
+    setLikeBurstKey((prev) => prev + 1);
+    setShowLikeBurst(true);
+    if (likeBurstTimeoutRef.current) {
+      clearTimeout(likeBurstTimeoutRef.current);
+    }
+    likeBurstTimeoutRef.current = setTimeout(() => {
+      setShowLikeBurst(false);
+    }, 820);
+  };
+
   const handleDeletePost = async () => {
     if (!isOwner || isDeleteSubmitting) return;
     setIsDeleteSubmitting(true);
@@ -144,7 +216,7 @@ export default function PostCard({
       await axios.patch(
         `/api/posts/${post.id}`,
         { caption: trimmed },
-        { withCredentials: true }
+        { withCredentials: true },
       );
       onPostUpdated?.(post.id, {
         caption: trimmed,
@@ -160,15 +232,17 @@ export default function PostCard({
   };
 
   const handleSharePost = async () => {
-    const shareUrl = `${window.location.origin}/?post=${post.id}`;
+    const shareUrl = `${window.location.origin}/?postId=${post.id}`;
     if (navigator.share) {
       try {
         await navigator.share({ url: shareUrl });
+        playSendSound();
         return;
       } catch {}
     }
     try {
       await navigator.clipboard.writeText(shareUrl);
+      playSendSound();
       showToast("Link copied to clipboard", "success");
     } catch {
       showToast("Failed to copy link", "error");
@@ -182,6 +256,12 @@ export default function PostCard({
     const optimisticLikes = optimisticLiked
       ? likes + 1
       : Math.max(0, likes - 1);
+
+    if (optimisticLiked) {
+      triggerLikeBurst();
+      playLikeSound();
+    }
+
     setLiked(optimisticLiked);
     setLikes(optimisticLikes);
     onPostUpdated?.(post.id, {
@@ -192,7 +272,7 @@ export default function PostCard({
       const response = await axios.post(
         "/api/social/likes/toggle",
         { postId: post.id },
-        { withCredentials: true }
+        { withCredentials: true },
       );
       const data = response.data;
       setLiked(data.liked);
@@ -217,7 +297,7 @@ export default function PostCard({
       const response = await axios.post(
         "/api/social/saved/toggle",
         { postId: post.id },
-        { withCredentials: true }
+        { withCredentials: true },
       );
       const data = response.data;
       setSaved(data.saved);
@@ -227,6 +307,38 @@ export default function PostCard({
       onPostUpdated?.(post.id, { isSaved: saved });
     } finally {
       setIsSaveSubmitting(false);
+    }
+  };
+
+  const handleFollowToggle = async () => {
+    if (!currentUserId || isOwner || isFollowSubmitting) return;
+    setIsFollowSubmitting(true);
+    const previous = isFollowingUser;
+    const optimistic = !previous;
+    setIsFollowingUser(optimistic);
+    onPostUpdated?.(post.id, {
+      user: { ...post.user, isFollowing: optimistic },
+    });
+    try {
+      const response = await axios.post(
+        "/api/social/follows/toggle",
+        { targetUserId: post.user.id },
+        { withCredentials: true },
+      );
+      const data = response.data as { isFollowing: boolean };
+      setIsFollowingUser(data.isFollowing);
+      onPostUpdated?.(post.id, {
+        user: { ...post.user, isFollowing: data.isFollowing },
+      });
+      showToast(data.isFollowing ? "Followed" : "Unfollowed", "success");
+    } catch {
+      setIsFollowingUser(previous);
+      onPostUpdated?.(post.id, {
+        user: { ...post.user, isFollowing: previous },
+      });
+      showToast("Failed to update follow", "error");
+    } finally {
+      setIsFollowSubmitting(false);
     }
   };
 
@@ -240,7 +352,7 @@ export default function PostCard({
         <Avatar
           user={post.user}
           size="md"
-          onClick={() => router.push(`/profile/@${post.user.username}`)}
+          onClick={() => setIsProfilePreviewOpen(true)}
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
@@ -257,11 +369,27 @@ export default function PostCard({
                 className="text-blue-500 flex-shrink-0 fill-blue-500 stroke-base"
               />
             )}
+            {!isOwner && currentUserId ? (
+              <button
+                type="button"
+                onClick={() => void handleFollowToggle()}
+                disabled={isFollowSubmitting}
+                className={`text-[11px] font-semibold transition-colors disabled:opacity-60 text-brand hover:text-brand/80`}
+              >
+                {isFollowSubmitting
+                  ? "..."
+                  : isFollowingUser
+                    ? "Following"
+                    : "Follow"}
+              </button>
+            ) : null}
             <span className="text-[12px] text-ink-3">• {post.createdAt}</span>
           </div>
-          {post.location && (
-            <span className="text-[11px] text-ink-3 mt-0.5 block">{post.location}</span>
-          )}
+          <div className="flex items-center min-w-0">
+            <span className="text-[12px] sm:text-[13px] text-ink-2 truncate">
+              {post.user.displayName}
+            </span>
+          </div>
         </div>
         {isOwner ? (
           <div className="relative" ref={ownerMenuRef}>
@@ -325,8 +453,7 @@ export default function PostCard({
             <p className="text-[12px] text-ink-3">Media unavailable</p>
           </div>
         ) : post.mediaType === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             key={`img-${post.id}-${mediaLoadKey}`}
             src={post.mediaUrl}
             alt={post.mediaLabel}
@@ -338,16 +465,15 @@ export default function PostCard({
             decoding="async"
             onLoad={() => setIsMediaLoading(false)}
             onError={() => setIsMediaLoading(false)}
+            width={1000}
+            height={1000}
           />
         ) : (
           <VideoPlayer
             key={`vid-${post.id}-${mediaLoadKey}`}
             src={post.mediaUrl}
             poster={post.thumbnailUrl}
-            className={[
-              "w-full h-auto max-h-[85vh] object-contain",
-              isMediaLoading ? "opacity-0" : "opacity-100",
-            ].join(" ")}
+            className="w-full h-auto max-h-[85vh] object-contain"
             autoPlay
             loop
             muted
@@ -357,7 +483,7 @@ export default function PostCard({
             showMuteButton
           />
         )}
-        {isMediaLoading && post.mediaUrl ? (
+        {isMediaLoading && post.mediaUrl && post.mediaType === "image" ? (
           <div className="absolute inset-0 z-10 bg-surface-2 animate-pulse min-h-[200px]" />
         ) : null}
         {post.mediaType === "video" && (
@@ -379,6 +505,89 @@ export default function PostCard({
             </div>
           </div>
         )}
+
+        {showLikeBurst ? (
+          <div
+            key={likeBurstKey}
+            className="like-burst-layer"
+            aria-hidden="true"
+          >
+            <div className="like-burst-ring" />
+            <Heart className="like-burst-core" fill="currentColor" />
+            <span
+              className="like-burst-particle"
+              style={{
+                left: "50%",
+                top: "46%",
+                ["--x" as string]: "-64px",
+                ["--y" as string]: "-52px",
+                ["--r" as string]: "-18deg",
+              }}
+            >
+              ❤
+            </span>
+            <span
+              className="like-burst-particle"
+              style={{
+                left: "54%",
+                top: "48%",
+                ["--x" as string]: "-20px",
+                ["--y" as string]: "-78px",
+                ["--r" as string]: "-6deg",
+              }}
+            >
+              ❤
+            </span>
+            <span
+              className="like-burst-particle"
+              style={{
+                left: "47%",
+                top: "50%",
+                ["--x" as string]: "42px",
+                ["--y" as string]: "-62px",
+                ["--r" as string]: "12deg",
+              }}
+            >
+              ❤
+            </span>
+            <span
+              className="like-burst-particle"
+              style={{
+                left: "50%",
+                top: "52%",
+                ["--x" as string]: "68px",
+                ["--y" as string]: "-8px",
+                ["--r" as string]: "18deg",
+              }}
+            >
+              ❤
+            </span>
+            <span
+              className="like-burst-particle"
+              style={{
+                left: "49%",
+                top: "50%",
+                ["--x" as string]: "28px",
+                ["--y" as string]: "56px",
+                ["--r" as string]: "8deg",
+              }}
+            >
+              ❤
+            </span>
+            <span
+              className="like-burst-particle"
+              style={{
+                left: "52%",
+                top: "48%",
+                ["--x" as string]: "-44px",
+                ["--y" as string]: "42px",
+                ["--r" as string]: "-14deg",
+              }}
+            >
+              ❤
+            </span>
+          </div>
+        ) : null}
       </div>
 
       {/* Action Bar */}
@@ -413,7 +622,7 @@ export default function PostCard({
           onClick={() => void handleSharePost()}
           className="p-2 transition-transform active:scale-90"
         >
-          <Send size={24} strokeWidth={1.8} className="text-ink -rotate-12" />
+          <Send size={22} strokeWidth={1.8} className="text-ink" />
         </button>
 
         {/* Save — right aligned */}
@@ -432,9 +641,18 @@ export default function PostCard({
         </button>
       </div>
 
-      {/* Likes count */}
-      <div className="px-4">
-        <p className="text-[14px] font-semibold text-ink">{formatCount(likes)} likes</p>
+      {/* Likes and comments count */}
+      <div className="px-4 flex items-center gap-3">
+        <p className="text-[14px] font-semibold text-ink">
+          {formatCount(likes)} likes
+        </p>
+        <button
+          type="button"
+          onClick={() => onOpenPost(post)}
+          className="text-[14px] text-ink font-semibold"
+        >
+          {formatCount(post.comments)} comments
+        </button>
       </div>
 
       {/* Caption */}
@@ -448,7 +666,9 @@ export default function PostCard({
             {post.user.username}
           </button>
           <span className="whitespace-pre-wrap text-ink">
-            {isCaptionExpanded ? post.caption : captionPreview}
+            {renderCaptionWithLinks(
+              isCaptionExpanded ? post.caption : captionPreview,
+            )}
           </span>
         </p>
         {isCaptionTruncated ? (
@@ -463,15 +683,15 @@ export default function PostCard({
         {!isCaptionExpanded && displayTags.length > 0 && (
           <p className="text-[13px] text-brand mt-1">{displayTags.join(" ")}</p>
         )}
-        {post.comments > 0 && (
-          <button
-            type="button"
-            onClick={() => onOpenPost(post)}
-            className="text-[14px] text-ink-3 mt-1 block"
-          >
-            View all {post.comments} comments
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => onOpenPost(post)}
+          className="text-[14px] text-ink-3 mt-1 block"
+        >
+          {post.comments > 0
+            ? `View all ${post.comments} comments`
+            : "Be the first to comment"}
+        </button>
       </div>
 
       {isEditModalOpen ? (
@@ -505,6 +725,54 @@ export default function PostCard({
               >
                 {isUpdateSubmitting ? "Saving..." : "Save"}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isProfilePreviewOpen ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsProfilePreviewOpen(false);
+          }}
+        >
+          <div className="relative w-full max-w-[460px] rounded-2xl border border-border-soft bg-surface p-3 sm:p-4 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setIsProfilePreviewOpen(false)}
+              className="absolute right-3 top-3 w-8 h-8 rounded-full flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-colors"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="pt-6 pb-2">
+              <p className="text-center text-[15px] font-semibold text-ink">
+                {post.user.displayName}
+              </p>
+              <p className="text-center text-[12px] text-ink-3 mt-0.5">
+                @{post.user.username}
+              </p>
+            </div>
+
+            <div className="mx-auto mt-2 w-[240px] h-[240px] sm:w-[320px] sm:h-[320px] rounded-full overflow-hidden relative bg-base border border-border-soft">
+              {post.user.avatarUrl ? (
+                <Image
+                  src={post.user.avatarUrl}
+                  alt={post.user.displayName}
+                  fill
+                  sizes="(max-width: 640px) 240px, 320px"
+                  className="object-cover"
+                />
+              ) : (
+                <div
+                  className={`w-full h-full bg-gradient-to-br ${post.user.avatarGradient} flex items-center justify-center`}
+                >
+                  <span className="text-white font-bold text-6xl sm:text-7xl select-none">
+                    {post.user.avatarInitial}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>

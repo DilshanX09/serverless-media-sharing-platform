@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, Volume1, Volume2, VolumeX } from "lucide-react";
+import { Loader2, Pause, Play, Volume1, Volume2, VolumeX } from "lucide-react";
 
 interface VideoPlayerProps {
   src: string;
@@ -11,7 +11,11 @@ interface VideoPlayerProps {
   loop?: boolean;
   muted?: boolean;
   onReady?: () => void;
-  onTimeUpdate?: (progress: number, currentTime: number, duration: number) => void;
+  onTimeUpdate?: (
+    progress: number,
+    currentTime: number,
+    duration: number,
+  ) => void;
   onEnded?: () => void;
   showSeekBar?: boolean;
   showPlayButton?: boolean;
@@ -51,7 +55,9 @@ export default function VideoPlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(initialMuted);
   const [volume, setVolume] = useState(initialMuted ? 0 : 1);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isReady, setIsReady] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -66,14 +72,52 @@ export default function VideoPlayer({
     };
   }, []);
 
+  useEffect(() => {
+    setIsInitialLoading(true);
+    setIsReady(false);
+    setShowControls(false);
+    setShowVolumeSlider(false);
+    setProgress(0);
+    setCurrentTime(0);
+    setDuration(0);
+    setIsMuted(initialMuted);
+    setVolume(initialMuted ? 0 : 1);
+    prevVolumeRef.current = initialMuted ? 1 : 1;
+  }, [src]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = isMuted;
+    video.volume = isMuted ? 0 : volume;
+  }, [isMuted, volume]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia("(pointer: coarse)");
+    const apply = (matches: boolean) => setIsTouchDevice(matches);
+    apply(mediaQuery.matches);
+    const handler = (event: MediaQueryListEvent) => apply(event.matches);
+    mediaQuery.addEventListener("change", handler);
+    return () => mediaQuery.removeEventListener("change", handler);
+  }, []);
+
   const hideControlsAfterDelay = () => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    controlsTimeoutRef.current = setTimeout(() => {
-      const video = videoRef.current;
-      if (video && !video.paused && !isSeekingRef.current && !isAdjustingVolumeRef.current) {
-        setShowControls(false);
-      }
-    }, 2000);
+    controlsTimeoutRef.current = setTimeout(
+      () => {
+        const video = videoRef.current;
+        if (
+          video &&
+          !video.paused &&
+          !isSeekingRef.current &&
+          !isAdjustingVolumeRef.current
+        ) {
+          setShowControls(false);
+        }
+      },
+      isTouchDevice ? 3600 : 2000,
+    );
   };
 
   const revealControls = () => {
@@ -97,9 +141,12 @@ export default function VideoPlayer({
     if (video.muted || video.volume === 0) {
       video.muted = false;
       video.volume = prevVolumeRef.current > 0 ? prevVolumeRef.current : 1;
+      setIsMuted(false);
+      setVolume(video.volume);
     } else {
       prevVolumeRef.current = video.volume;
       video.muted = true;
+      setIsMuted(true);
     }
   };
 
@@ -127,6 +174,8 @@ export default function VideoPlayer({
     const percent = y / rect.height;
     video.volume = percent;
     video.muted = percent === 0;
+    setVolume(percent);
+    setIsMuted(percent === 0);
     if (percent > 0) prevVolumeRef.current = percent;
   };
 
@@ -169,7 +218,10 @@ export default function VideoPlayer({
     const onEnd = () => {
       isAdjustingVolumeRef.current = false;
       if (volumeTimeoutRef.current) clearTimeout(volumeTimeoutRef.current);
-      volumeTimeoutRef.current = setTimeout(() => setShowVolumeSlider(false), 1000);
+      volumeTimeoutRef.current = setTimeout(
+        () => setShowVolumeSlider(false),
+        1000,
+      );
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onEnd);
       window.removeEventListener("touchmove", onMove);
@@ -181,12 +233,23 @@ export default function VideoPlayer({
     window.addEventListener("touchend", onEnd);
   };
 
-  const VolumeIcon = isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
+  const VolumeIcon =
+    isMuted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
   return (
     <div
       className={`relative ${className}`}
-      onClick={revealControls}
+      onClick={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (!isReady || isInitialLoading) return;
+        if (isTouchDevice) {
+          togglePlay();
+          setShowControls(true);
+          hideControlsAfterDelay();
+          return;
+        }
+        revealControls();
+      }}
       onMouseMove={() => {
         if (isReady) revealControls();
       }}
@@ -208,13 +271,27 @@ export default function VideoPlayer({
         className="w-full h-full object-contain"
         controlsList="nodownload noplaybackrate"
         disablePictureInPicture
+        onLoadStart={() => {
+          setIsInitialLoading(true);
+          setIsReady(false);
+        }}
+        onLoadedData={(e) => {
+          const d = e.currentTarget.duration;
+          if (Number.isFinite(d)) setDuration(d);
+          setIsInitialLoading(false);
+          setIsReady(true);
+          onReady?.();
+        }}
         onLoadedMetadata={(e) => {
           const d = e.currentTarget.duration;
           if (Number.isFinite(d)) setDuration(d);
         }}
         onCanPlayThrough={() => {
-          setIsReady(true);
-          onReady?.();
+          if (!isReady) {
+            setIsInitialLoading(false);
+            setIsReady(true);
+            onReady?.();
+          }
         }}
         onPlaying={() => {
           setIsPlaying(true);
@@ -227,7 +304,8 @@ export default function VideoPlayer({
         onPause={() => {
           setIsPlaying(false);
           setShowControls(true);
-          if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+          if (controlsTimeoutRef.current)
+            clearTimeout(controlsTimeoutRef.current);
         }}
         onTimeUpdate={(e) => {
           const { currentTime: ct, duration: d } = e.currentTarget;
@@ -245,14 +323,31 @@ export default function VideoPlayer({
           setIsMuted(e.currentTarget.muted);
           setVolume(e.currentTarget.volume);
         }}
+        onError={() => {
+          setIsInitialLoading(false);
+          setIsReady(false);
+        }}
       />
 
+      {isInitialLoading && (
+        <div className="absolute inset-0 z-20 bg-gradient-to-b from-black/40 via-black/60 to-black/75 flex items-center justify-center">
+          <div className="flex items-center gap-2 rounded-full bg-black/55 px-3 py-2 border border-white/20 backdrop-blur-sm">
+            <Loader2 size={14} className="text-white animate-spin" />
+            <span className="text-[11px] tracking-wide uppercase text-white/90 font-semibold">
+              Loading video
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Large center play/pause button */}
-      {showPlayButton && (
+      {showPlayButton && !isInitialLoading && (
         <div
           className={[
             "absolute inset-0 flex items-center justify-center transition-opacity duration-300 z-20",
-            showControls || !isPlaying ? "opacity-100" : "opacity-0 pointer-events-none",
+            showControls || !isPlaying
+              ? "opacity-100"
+              : "opacity-0 pointer-events-none",
           ].join(" ")}
         >
           <button
@@ -261,12 +356,15 @@ export default function VideoPlayer({
               e.stopPropagation();
               togglePlay();
             }}
-            className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm border border-white/20 flex items-center justify-center hover:bg-black/60 hover:scale-105 transition-all"
+            className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-black/50 backdrop-blur-sm border border-white/20 flex items-center justify-center hover:bg-black/60 hover:scale-105 transition-all"
           >
             {isPlaying ? (
-              <Pause size={28} className="text-white" />
+              <Pause size={24} className="text-white md:w-7 md:h-7" />
             ) : (
-              <Play size={28} className="text-white fill-white ml-1" />
+              <Play
+                size={24}
+                className="text-white fill-white ml-1 md:w-7 md:h-7"
+              />
             )}
           </button>
         </div>
@@ -276,7 +374,9 @@ export default function VideoPlayer({
       <div
         className={[
           "absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-3 transition-opacity duration-300 z-30",
-          showControls || !isPlaying ? "opacity-100" : "opacity-0 pointer-events-none",
+          !isInitialLoading && (showControls || !isPlaying)
+            ? "opacity-100"
+            : "opacity-0 pointer-events-none",
         ].join(" ")}
         onClick={(e) => e.stopPropagation()}
       >
@@ -285,7 +385,7 @@ export default function VideoPlayer({
           {showSeekBar && (
             <div
               ref={seekBarRef}
-              className="flex-1 h-6 flex items-center cursor-pointer select-none relative group/seek"
+              className="flex-1 h-7 flex items-center cursor-pointer select-none relative group/seek"
               onMouseDown={onSeekStart}
               onTouchStart={onSeekStart}
             >
@@ -316,12 +416,16 @@ export default function VideoPlayer({
             <div
               className="relative"
               onMouseEnter={() => {
-                if (volumeTimeoutRef.current) clearTimeout(volumeTimeoutRef.current);
+                if (volumeTimeoutRef.current)
+                  clearTimeout(volumeTimeoutRef.current);
                 setShowVolumeSlider(true);
               }}
               onMouseLeave={() => {
                 if (!isAdjustingVolumeRef.current) {
-                  volumeTimeoutRef.current = setTimeout(() => setShowVolumeSlider(false), 600);
+                  volumeTimeoutRef.current = setTimeout(
+                    () => setShowVolumeSlider(false),
+                    600,
+                  );
                 }
               }}
             >
@@ -329,9 +433,15 @@ export default function VideoPlayer({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (!showVolumeSlider) {
+                    if (volumeTimeoutRef.current)
+                      clearTimeout(volumeTimeoutRef.current);
+                    setShowVolumeSlider(true);
+                    return;
+                  }
                   toggleMute();
                 }}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 transition-colors"
+                className="w-9 h-9 md:w-8 md:h-8 flex items-center justify-center rounded-full hover:bg-white/15 transition-colors"
               >
                 <VolumeIcon size={18} className="text-white" />
               </button>
@@ -340,7 +450,9 @@ export default function VideoPlayer({
               <div
                 className={[
                   "absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-3 bg-black/85 backdrop-blur-sm rounded-lg transition-all duration-200",
-                  showVolumeSlider ? "opacity-100 scale-100" : "opacity-0 scale-90 pointer-events-none",
+                  showVolumeSlider
+                    ? "opacity-100 scale-100"
+                    : "opacity-0 scale-90 pointer-events-none",
                 ].join(" ")}
               >
                 <div

@@ -23,10 +23,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(cached, { status: 200 });
   }
 
-  const [me, followers, following, postsCount, posts, myFollowing, myFollowers] = await Promise.all([
+  const [
+    me,
+    followers,
+    following,
+    postsCount,
+    posts,
+    myFollowing,
+    myFollowers,
+  ] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, username: true, displayName: true, avatarBlobUrl: true, bio: true, email: true },
+      select: {
+        id: true,
+        username: true,
+        displayName: true,
+        avatarBlobUrl: true,
+        bio: true,
+        email: true,
+      },
     }),
     prisma.follow.count({ where: { followingId: userId } }),
     prisma.follow.count({ where: { followerId: userId } }),
@@ -35,7 +50,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       orderBy: { createdAt: "desc" },
       take: 50,
       include: {
-        author: { select: { id: true, username: true, displayName: true, avatarBlobUrl: true } },
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarBlobUrl: true,
+          },
+        },
         _count: { select: { likes: true, comments: true } },
       },
     }),
@@ -49,7 +71,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }),
   ]);
 
-  if (!me) return NextResponse.json({ error: "User not found" }, { status: 404 });
+  if (!me)
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
 
   const currentUser = mapUser({
     ...me,
@@ -72,14 +95,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     : [[], []];
   const likedSet = new Set(likedRows.map((row) => row.postId));
   const savedSet = new Set(savedRows.map((row) => row.postId));
+  const followingSet = new Set(myFollowing.map((row) => row.followingId));
   const mappedPosts = posts.map((post) =>
     mapPost({
       ...post,
+      author: {
+        ...post.author,
+        isFollowing: followingSet.has(post.author.id),
+      },
       isLiked: likedSet.has(post.id),
       isSaved: savedSet.has(post.id),
-    })
+    }),
   );
-  const followingSet = new Set(myFollowing.map((row) => row.followingId));
   const allowedStoryAuthorIds = [userId, ...Array.from(followingSet)];
   const stories = await prisma.story.findMany({
     where: {
@@ -90,10 +117,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     take: 30,
     include: { author: { select: { username: true, avatarBlobUrl: true } } },
   });
-  const followingPosts = mappedPosts.filter((post) => followingSet.has(post.user.id));
+  const followingPosts = mappedPosts.filter((post) =>
+    followingSet.has(post.user.id),
+  );
   const mappedStories = stories.map((story) => mapStory(story));
 
-  const alreadyFollowingIds = new Set(myFollowing.map((row) => row.followingId));
+  const alreadyFollowingIds = new Set(
+    myFollowing.map((row) => row.followingId),
+  );
   const followingIds = myFollowing.map((row) => row.followingId);
   const followerIds = new Set(myFollowers.map((row) => row.followerId));
   const excludedIds = [userId, ...alreadyFollowingIds];
@@ -101,7 +132,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     where: { id: { notIn: excludedIds } },
     orderBy: { createdAt: "desc" },
     take: 30,
-    select: { id: true, username: true, displayName: true, avatarBlobUrl: true, createdAt: true },
+    select: {
+      id: true,
+      username: true,
+      displayName: true,
+      avatarBlobUrl: true,
+      createdAt: true,
+    },
   });
 
   const scoredSuggestions = await Promise.all(
@@ -120,33 +157,40 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         isFollowedBy,
         mutualFriends,
       };
-    })
+    }),
   );
 
   scoredSuggestions.sort((a, b) => {
     if (a.isFollowedBy !== b.isFollowedBy) return a.isFollowedBy ? -1 : 1;
-    if (a.mutualFriends !== b.mutualFriends) return b.mutualFriends - a.mutualFriends;
+    if (a.mutualFriends !== b.mutualFriends)
+      return b.mutualFriends - a.mutualFriends;
     return b.candidate.createdAt.getTime() - a.candidate.createdAt.getTime();
   });
 
-  const mappedSuggested = scoredSuggestions.slice(0, 8).map(({ candidate, isFollowedBy, mutualFriends }) =>
-    mapSuggestedUser({
-      id: candidate.id,
-      username: candidate.username,
-      displayName: candidate.displayName,
-      avatarBlobUrl: candidate.avatarBlobUrl,
-      isFollowing: false,
-      isFollowedBy,
-      mutualFriends,
-      reason: isFollowedBy
-        ? "Follows you"
-        : mutualFriends > 0
-          ? `${mutualFriends} mutual connection${mutualFriends > 1 ? "s" : ""}`
-          : "Suggested for you",
-    })
-  );
-  const searchableUsers = [currentUser, ...mappedSuggested, ...mappedPosts.map((post) => post.user)].filter(
-    (value, index, arr) => arr.findIndex((it) => it.id === value.id) === index
+  const mappedSuggested = scoredSuggestions
+    .slice(0, 8)
+    .map(({ candidate, isFollowedBy, mutualFriends }) =>
+      mapSuggestedUser({
+        id: candidate.id,
+        username: candidate.username,
+        displayName: candidate.displayName,
+        avatarBlobUrl: candidate.avatarBlobUrl,
+        isFollowing: false,
+        isFollowedBy,
+        mutualFriends,
+        reason: isFollowedBy
+          ? "Follows you"
+          : mutualFriends > 0
+            ? `${mutualFriends} mutual connection${mutualFriends > 1 ? "s" : ""}`
+            : "Suggested for you",
+      }),
+    );
+  const searchableUsers = [
+    currentUser,
+    ...mappedSuggested,
+    ...mappedPosts.map((post) => post.user),
+  ].filter(
+    (value, index, arr) => arr.findIndex((it) => it.id === value.id) === index,
   );
 
   const payload = {

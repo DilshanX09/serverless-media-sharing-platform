@@ -34,12 +34,31 @@ export default function HomePage() {
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
   const [searchableUsers, setSearchableUsers] = useState<User[]>([]);
   const [isGuest, setIsGuest] = useState(false);
+  const [consumedSharedPostId, setConsumedSharedPostId] = useState<
+    string | null
+  >(null);
   const [activeFeedTab, setActiveFeedTab] = useState<"forYou" | "following">(
     "forYou",
   );
+  const [sharedPostId, setSharedPostId] = useState<string | null>(null);
   const handleSuggestionFollowed = (userId: string) => {
     setSuggestedUsers((prev) => prev.filter((user) => user.id !== userId));
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const updateSharedPostId = () => {
+      const params = new URLSearchParams(window.location.search);
+      setSharedPostId(params.get("postId") ?? params.get("post") ?? null);
+    };
+
+    updateSharedPostId();
+    window.addEventListener("popstate", updateSharedPostId);
+    return () => {
+      window.removeEventListener("popstate", updateSharedPostId);
+    };
+  }, []);
 
   const loadFeed = useCallback(async () => {
     try {
@@ -55,8 +74,8 @@ export default function HomePage() {
       try {
         window.sessionStorage.setItem(FEED_CACHE_KEY, JSON.stringify(data));
       } catch {}
-    } catch (error: any) {
-      if (error.response?.status === 401) {
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
         try {
           const guestResponse = await axios.get("/api/feed/public", {
             withCredentials: true,
@@ -141,6 +160,35 @@ export default function HomePage() {
   );
 
   useEffect(() => {
+    if (!sharedPostId || isInitialLoading) return;
+    if (consumedSharedPostId === sharedPostId) return;
+
+    const allPosts = [...posts, ...followingPosts];
+    const match = allPosts.find((item) => item.id === sharedPostId);
+    if (!match) return;
+
+    setActivePost(match);
+    setConsumedSharedPostId(sharedPostId);
+  }, [
+    sharedPostId,
+    isInitialLoading,
+    consumedSharedPostId,
+    posts,
+    followingPosts,
+  ]);
+
+  const handleClosePostModal = useCallback(() => {
+    setActivePost(null);
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("postId") && !params.has("post")) return;
+    params.delete("postId");
+    params.delete("post");
+    const nextQuery = params.toString();
+    router.replace(nextQuery ? `/?${nextQuery}` : "/", { scroll: false });
+  }, [router]);
+
+  useEffect(() => {
     if (isGuest || !currentUser) return;
     let cancelled = false;
     let unbind: (() => void) | null = null;
@@ -214,10 +262,10 @@ export default function HomePage() {
         onPostPublished={() => void loadFeed()}
       />
 
-      <main className="pt-[60px] min-h-screen bg-base">
-        <div className="max-w-[1240px] mx-auto px-0 sm:px-4 md:px-6 py-2 sm:py-8 grid grid-cols-1 lg:grid-cols-[minmax(0,68%)_minmax(260px,32%)] gap-7 items-start">
+      <main className="min-h-screen bg-base lg:pt-0 lg:pl-[236px] lg:h-screen lg:overflow-hidden">
+        <div className="max-w-[1240px] mx-auto px-0 sm:px-4 md:px-6 sm:pt-7 h-full grid grid-cols-1 lg:grid-cols-[minmax(0,68%)_minmax(260px,32%)] gap-7 items-start">
           {/* Feed Column */}
-          <section>
+          <section className="lg:h-full lg:overflow-y-auto lg:pr-1 [scrollbar-width:none] lg:[&::-webkit-scrollbar]:hidden">
             <div className="max-w-[600px] mx-auto w-full">
               {isInitialLoading ? (
                 <div className="mb-4 px-3 sm:px-0">
@@ -263,9 +311,7 @@ export default function HomePage() {
                       type="button"
                       onClick={() => setActiveFeedTab("forYou")}
                       className={`text-[14px] font-semibold transition-colors ${
-                        activeFeedTab === "forYou"
-                          ? "text-ink"
-                          : "text-ink-3"
+                        activeFeedTab === "forYou" ? "text-ink" : "text-ink-3"
                       }`}
                     >
                       For you
@@ -355,14 +401,16 @@ export default function HomePage() {
           </section>
 
           {/* Sidebar Column - hidden on mobile */}
-          <div className="hidden lg:block">
-            <Sidebar
-              isLoading={isInitialLoading}
-              currentUserData={currentUser ?? undefined}
-              suggestedUsersData={suggestedUsers}
-              isGuest={isGuest}
-              onFollowedSuggestion={handleSuggestionFollowed}
-            />
+          <div className="hidden lg:block lg:h-full lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1 [scrollbar-width:none] lg:[&::-webkit-scrollbar]:hidden">
+            <div>
+              <Sidebar
+                isLoading={isInitialLoading}
+                currentUserData={currentUser ?? undefined}
+                suggestedUsersData={suggestedUsers}
+                isGuest={isGuest}
+                onFollowedSuggestion={handleSuggestionFollowed}
+              />
+            </div>
           </div>
         </div>
       </main>
@@ -370,7 +418,7 @@ export default function HomePage() {
       {/* Post Modal */}
       <PostModal
         post={activePost}
-        onClose={() => setActivePost(null)}
+        onClose={handleClosePostModal}
         onPostUpdated={handlePostUpdated}
         currentUserId={currentUser?.id}
         onPostDeleted={handlePostDeleted}

@@ -20,7 +20,8 @@ function safeMediaUrl(value: string | null | undefined): string | undefined {
 
 export function getAvatarGradient(seed: string): string {
   let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
+  for (let i = 0; i < seed.length; i += 1)
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
   return gradients[Math.abs(hash) % gradients.length];
 }
 
@@ -40,6 +41,7 @@ export function mapUser(input: {
   id: string;
   username: string;
   displayName: string;
+  isFollowing?: boolean;
   avatarBlobUrl?: string | null;
   email?: string | null;
   bio?: string | null;
@@ -53,6 +55,7 @@ export function mapUser(input: {
     id: input.id,
     username,
     displayName,
+    isFollowing: input.isFollowing,
     avatarInitial: displayName[0]?.toUpperCase() ?? "U",
     avatarGradient: getAvatarGradient(input.id),
     avatarUrl: safeMediaUrl(input.avatarBlobUrl),
@@ -116,6 +119,7 @@ export function mapPost(input: {
     id: string;
     username: string;
     displayName: string;
+    isFollowing?: boolean;
     avatarBlobUrl: string | null;
   };
   _count?: { likes: number; comments: number };

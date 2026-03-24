@@ -16,8 +16,16 @@ interface DeleteCommentBody {
   commentId?: unknown;
 }
 
+interface UpdateCommentBody {
+  commentId?: unknown;
+  content?: unknown;
+}
+
 const LOCAL_COMMENTS_CACHE_TTL = 15_000;
-const localCommentsCache = new Map<string, { comments: ReturnType<typeof mapCommentNode>[]; cachedAt: number }>();
+const localCommentsCache = new Map<
+  string,
+  { comments: ReturnType<typeof mapCommentNode>[]; cachedAt: number }
+>();
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const authResult = requireAuth(request);
@@ -25,10 +33,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return authResult.response;
   }
 
-  const body = (await request.json().catch(() => null)) as CreateCommentBody | null;
+  const body = (await request
+    .json()
+    .catch(() => null)) as CreateCommentBody | null;
   const postId = typeof body?.postId === "string" ? body.postId.trim() : "";
   const content = typeof body?.content === "string" ? body.content.trim() : "";
-  const parentId = typeof body?.parentId === "string" ? body.parentId.trim() : null;
+  const parentId =
+    typeof body?.parentId === "string" ? body.parentId.trim() : null;
 
   if (!postId) {
     return NextResponse.json({ error: "postId is required" }, { status: 400 });
@@ -54,7 +65,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       select: { id: true, postId: true },
     });
     if (!parent || parent.postId !== postId) {
-      return NextResponse.json({ error: "Invalid parentId for this post" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid parentId for this post" },
+        { status: 400 },
+      );
     }
   }
 
@@ -90,7 +104,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   await cacheDelete(
     cacheKeys.comments(postId),
     cacheKeys.feed(authResult.user.sub),
-    cacheKeys.feed(post.authorId)
+    cacheKeys.feed(post.authorId),
   );
 
   return NextResponse.json(
@@ -105,7 +119,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       parentId: created.parentId,
       totalComments,
     },
-    { status: 201 }
+    { status: 201 },
   );
 }
 
@@ -123,7 +137,17 @@ type DbCommentNode = {
   replies: DbCommentNode[];
 };
 
-function mapCommentNode(comment: DbCommentNode): any {
+type ApiCommentNode = {
+  id: string;
+  user: ReturnType<typeof mapUser>;
+  text: string;
+  createdAt: string;
+  likes: number;
+  isLiked: boolean;
+  replies: ApiCommentNode[];
+};
+
+function mapCommentNode(comment: DbCommentNode): ApiCommentNode {
   return {
     id: comment.id,
     user: mapUser(comment.author),
@@ -145,12 +169,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!postId) {
     return NextResponse.json({ error: "postId is required" }, { status: 400 });
   }
-  const commentLikeModel = (prisma as unknown as { commentLike?: unknown }).commentLike;
+  const commentLikeModel = (prisma as unknown as { commentLike?: unknown })
+    .commentLike;
   const flattenIds = (nodes: ReturnType<typeof mapCommentNode>[]): string[] =>
     nodes.flatMap((node) => [node.id, ...flattenIds(node.replies ?? [])]);
   const applyLikedState = (
     nodes: ReturnType<typeof mapCommentNode>[],
-    likedIds: Set<string>
+    likedIds: Set<string>,
   ): ReturnType<typeof mapCommentNode>[] =>
     nodes.map((node) => ({
       ...node,
@@ -160,17 +185,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const cached = localCommentsCache.get(postId);
   if (cached && Date.now() - cached.cachedAt < LOCAL_COMMENTS_CACHE_TTL) {
-    if (!commentLikeModel) return NextResponse.json({ comments: cached.comments }, { status: 200 });
+    if (!commentLikeModel)
+      return NextResponse.json({ comments: cached.comments }, { status: 200 });
     const ids = flattenIds(cached.comments);
-    if (!ids.length) return NextResponse.json({ comments: cached.comments }, { status: 200 });
-    const myLikes = await (commentLikeModel as {
-      findMany: (args: unknown) => Promise<Array<{ commentId: string }>>;
-    }).findMany({
+    if (!ids.length)
+      return NextResponse.json({ comments: cached.comments }, { status: 200 });
+    const myLikes = await (
+      commentLikeModel as {
+        findMany: (args: unknown) => Promise<Array<{ commentId: string }>>;
+      }
+    ).findMany({
       where: { userId: authResult.user.sub, commentId: { in: ids } },
       select: { commentId: true },
     });
     const likedIds = new Set(myLikes.map((item) => item.commentId));
-    return NextResponse.json({ comments: applyLikedState(cached.comments, likedIds) }, { status: 200 });
+    return NextResponse.json(
+      { comments: applyLikedState(cached.comments, likedIds) },
+      { status: 200 },
+    );
   }
 
   const rows = await prisma.comment.findMany({
@@ -204,7 +236,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         parentId: row.parentId,
         author: row.author,
         replies: [],
-      })
+      }),
     );
   }
   for (const row of rows) {
@@ -233,11 +265,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       select: { commentId: true },
     });
     for (const row of allLikes) {
-      likeCountByCommentId.set(row.commentId, (likeCountByCommentId.get(row.commentId) ?? 0) + 1);
+      likeCountByCommentId.set(
+        row.commentId,
+        (likeCountByCommentId.get(row.commentId) ?? 0) + 1,
+      );
     }
   }
 
-  const applyLikeCounts = (nodes: ReturnType<typeof mapCommentNode>[]): ReturnType<typeof mapCommentNode>[] =>
+  const applyLikeCounts = (
+    nodes: ReturnType<typeof mapCommentNode>[],
+  ): ReturnType<typeof mapCommentNode>[] =>
     nodes.map((node) => ({
       ...node,
       likes: likeCountByCommentId.get(node.id) ?? 0,
@@ -248,18 +285,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const basePayload = { comments: applyLikeCounts(roots) };
   const ids = flattenIds(basePayload.comments);
   if (!commentLikeModel || !ids.length) {
-    localCommentsCache.set(postId, { comments: basePayload.comments, cachedAt: Date.now() });
+    localCommentsCache.set(postId, {
+      comments: basePayload.comments,
+      cachedAt: Date.now(),
+    });
     return NextResponse.json(basePayload, { status: 200 });
   }
-  const myLikes = await (commentLikeModel as {
-    findMany: (args: unknown) => Promise<Array<{ commentId: string }>>;
-  }).findMany({
+  const myLikes = await (
+    commentLikeModel as {
+      findMany: (args: unknown) => Promise<Array<{ commentId: string }>>;
+    }
+  ).findMany({
     where: { userId: authResult.user.sub, commentId: { in: ids } },
     select: { commentId: true },
   });
   const likedIds = new Set(myLikes.map((item) => item.commentId));
   const payload = { comments: applyLikedState(basePayload.comments, likedIds) };
-  localCommentsCache.set(postId, { comments: basePayload.comments, cachedAt: Date.now() });
+  localCommentsCache.set(postId, {
+    comments: basePayload.comments,
+    cachedAt: Date.now(),
+  });
   return NextResponse.json(payload, { status: 200 });
 }
 
@@ -269,10 +314,16 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     return authResult.response;
   }
 
-  const body = (await request.json().catch(() => null)) as DeleteCommentBody | null;
-  const commentId = typeof body?.commentId === "string" ? body.commentId.trim() : "";
+  const body = (await request
+    .json()
+    .catch(() => null)) as DeleteCommentBody | null;
+  const commentId =
+    typeof body?.commentId === "string" ? body.commentId.trim() : "";
   if (!commentId) {
-    return NextResponse.json({ error: "commentId is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "commentId is required" },
+      { status: 400 },
+    );
   }
 
   const comment = await prisma.comment.findUnique({
@@ -292,13 +343,87 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   }
 
   await prisma.comment.delete({ where: { id: commentId } });
-  const totalComments = await prisma.comment.count({ where: { postId: comment.postId } });
+  const totalComments = await prisma.comment.count({
+    where: { postId: comment.postId },
+  });
   localCommentsCache.delete(comment.postId);
   await cacheDelete(
     cacheKeys.comments(comment.postId),
     cacheKeys.feed(authResult.user.sub),
-    cacheKeys.feed(comment.post.authorId)
+    cacheKeys.feed(comment.post.authorId),
   );
 
-  return NextResponse.json({ success: true, commentId, totalComments }, { status: 200 });
+  return NextResponse.json(
+    { success: true, commentId, totalComments },
+    { status: 200 },
+  );
+}
+
+export async function PATCH(request: NextRequest): Promise<NextResponse> {
+  const authResult = requireAuth(request);
+  if ("response" in authResult) {
+    return authResult.response;
+  }
+
+  const body = (await request
+    .json()
+    .catch(() => null)) as UpdateCommentBody | null;
+  const commentId =
+    typeof body?.commentId === "string" ? body.commentId.trim() : "";
+  const content = typeof body?.content === "string" ? body.content.trim() : "";
+  if (!commentId) {
+    return NextResponse.json(
+      { error: "commentId is required" },
+      { status: 400 },
+    );
+  }
+  if (!content) {
+    return NextResponse.json({ error: "content is required" }, { status: 400 });
+  }
+  if (content.length > 5000) {
+    return NextResponse.json({ error: "content is too long" }, { status: 400 });
+  }
+
+  const existing = await prisma.comment.findUnique({
+    where: { id: commentId },
+    select: {
+      id: true,
+      authorId: true,
+      postId: true,
+      post: { select: { authorId: true } },
+    },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Comment not found" }, { status: 404 });
+  }
+  if (existing.authorId !== authResult.user.sub) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const updated = await prisma.comment.update({
+    where: { id: commentId },
+    data: { content },
+    select: {
+      id: true,
+      content: true,
+      createdAt: true,
+    },
+  });
+
+  localCommentsCache.delete(existing.postId);
+  await cacheDelete(
+    cacheKeys.comments(existing.postId),
+    cacheKeys.feed(authResult.user.sub),
+    cacheKeys.feed(existing.post.authorId),
+  );
+
+  return NextResponse.json(
+    {
+      success: true,
+      commentId: updated.id,
+      content: updated.content,
+      createdAt: relativeTime(updated.createdAt),
+    },
+    { status: 200 },
+  );
 }

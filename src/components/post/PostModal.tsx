@@ -4,6 +4,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type RefObject,
@@ -33,6 +34,7 @@ import { mapUser } from "@/lib/apiMappers";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import CommentInput from "@/components/post/CommentInput";
 import VideoPlayer from "@/components/ui/VideoPlayer";
+import { playLikeSound, playSendSound } from "@/lib/uiSounds";
 
 interface PostModalProps {
   post: Post | null;
@@ -42,11 +44,43 @@ interface PostModalProps {
   onPostDeleted?: (postId: string) => void;
 }
 
+const captionUrlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+function renderCaptionWithLinks(text: string) {
+  const parts = text.split(captionUrlRegex);
+  return parts.map((part, index) => {
+    if (!part) return null;
+    const isUrl = /^(https?:\/\/|www\.)/i.test(part);
+    if (!isUrl) return <span key={`caption-text-${index}`}>{part}</span>;
+
+    const trailing = part.match(/[.,!?;:)\]]+$/)?.[0] ?? "";
+    const cleanPart = trailing ? part.slice(0, -trailing.length) : part;
+    const href = cleanPart.startsWith("http")
+      ? cleanPart
+      : `https://${cleanPart}`;
+
+    return (
+      <span key={`caption-link-${index}`}>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          className="text-blue-500 hover:text-blue-400 underline underline-offset-2 break-all"
+        >
+          {cleanPart}
+        </a>
+        {trailing}
+      </span>
+    );
+  });
+}
+
 const modalCommentsCache = new Map<
   string,
   { comments: Comment[]; cachedAt: number }
 >();
 const COMMENTS_CACHE_TTL_MS = 60_000;
+const ROOT_COMMENTS_BATCH = 12;
 
 export default function PostModal({
   post,
@@ -67,15 +101,26 @@ export default function PostModal({
   const [isMediaLoading, setIsMediaLoading] = useState(true);
   const [isLikeSubmitting, setIsLikeSubmitting] = useState(false);
   const [isSaveSubmitting, setIsSaveSubmitting] = useState(false);
+  const [isFollowSubmitting, setIsFollowSubmitting] = useState(false);
   const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
   const [isUpdateSubmitting, setIsUpdateSubmitting] = useState(false);
   const [isOwnerMenuOpen, setIsOwnerMenuOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isProfilePreviewOpen, setIsProfilePreviewOpen] = useState(false);
+  const [isFollowingUser, setIsFollowingUser] = useState(false);
   const [editCaption, setEditCaption] = useState("");
   const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
+  const [visibleRootComments, setVisibleRootComments] =
+    useState(ROOT_COMMENTS_BATCH);
   const videoRef = useRef<HTMLVideoElement>(null);
   const ownerMenuRef = useRef<HTMLDivElement>(null);
+
+  const visibleComments = useMemo(
+    () => comments.slice(0, visibleRootComments),
+    [comments, visibleRootComments],
+  );
+  const hasMoreRootComments = comments.length > visibleRootComments;
 
   useEffect(() => {
     if (!post) return;
@@ -90,8 +135,10 @@ export default function PostModal({
     setIsVideoPlaying(false);
     setIsMediaLoading(true);
     setIsEditModalOpen(false);
+    setIsProfilePreviewOpen(false);
     setEditCaption(post.caption);
     setIsCaptionExpanded(false);
+    setVisibleRootComments(ROOT_COMMENTS_BATCH);
   }, [post?.id]);
 
   useEffect(() => {
@@ -100,7 +147,15 @@ export default function PostModal({
     setSaved(post.isSaved ?? false);
     setLikeCount(post.likes);
     setCommentCount(post.comments);
-  }, [post?.comments, post?.id, post?.isLiked, post?.isSaved, post?.likes]);
+    setIsFollowingUser(post.user.isFollowing ?? false);
+  }, [
+    post?.comments,
+    post?.id,
+    post?.isLiked,
+    post?.isSaved,
+    post?.likes,
+    post?.user.isFollowing,
+  ]);
 
   const refreshComments = useCallback(
     async (activePostId: string): Promise<number | null> => {
@@ -375,15 +430,17 @@ export default function PostModal({
   };
 
   const handleSharePost = async () => {
-    const shareUrl = `${window.location.origin}/?post=${post.id}`;
+    const shareUrl = `${window.location.origin}/?postId=${post.id}`;
     if (navigator.share) {
       try {
         await navigator.share({ url: shareUrl });
+        playSendSound();
         return;
       } catch {}
     }
     try {
       await navigator.clipboard.writeText(shareUrl);
+      playSendSound();
     } catch {}
   };
 
@@ -394,6 +451,11 @@ export default function PostModal({
     const optimisticLikes = optimisticLiked
       ? likeCount + 1
       : Math.max(0, likeCount - 1);
+
+    if (optimisticLiked) {
+      playLikeSound();
+    }
+
     setLiked(optimisticLiked);
     setLikeCount(optimisticLikes);
     onPostUpdated?.(post.id, {
@@ -445,23 +507,49 @@ export default function PostModal({
     }
   };
 
+  const handleFollowToggle = async () => {
+    if (!post || !currentUserId || isOwner || isFollowSubmitting) return;
+    setIsFollowSubmitting(true);
+    const previous = isFollowingUser;
+    const optimistic = !previous;
+    setIsFollowingUser(optimistic);
+    onPostUpdated?.(post.id, {
+      user: { ...post.user, isFollowing: optimistic },
+    });
+    try {
+      const response = await axios.post(
+        "/api/social/follows/toggle",
+        { targetUserId: post.user.id },
+        { withCredentials: true },
+      );
+      const data = response.data as { isFollowing: boolean };
+      setIsFollowingUser(data.isFollowing);
+      onPostUpdated?.(post.id, {
+        user: { ...post.user, isFollowing: data.isFollowing },
+      });
+    } catch {
+      setIsFollowingUser(previous);
+      onPostUpdated?.(post.id, {
+        user: { ...post.user, isFollowing: previous },
+      });
+    } finally {
+      setIsFollowSubmitting(false);
+    }
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/95 md:bg-black/80"
+      className="fixed inset-0 z-50 bg-black"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-surface border-0 md:border md:border-border-soft rounded-none md:rounded-2xl w-full md:max-w-[90vw] lg:max-w-[1200px] h-[100dvh] md:h-[92vh] md:max-h-[850px] flex flex-col md:flex-row overflow-hidden">
-        
+      <div className="bg-surface w-screen h-[100dvh] flex flex-col md:flex-row overflow-hidden">
         {/* Mobile Header - only visible on mobile */}
         <div className="md:hidden flex items-center gap-2.5 px-3 py-2.5 border-b border-border-soft flex-shrink-0 bg-surface">
           <Avatar
             user={post.user}
             size="sm"
             ring
-            onClick={() => {
-              onClose();
-              router.push(`/profile/@${post.user.username}`);
-            }}
+            onClick={() => setIsProfilePreviewOpen(true)}
             className="cursor-pointer"
           />
           <div className="flex-1 min-w-0">
@@ -477,8 +565,25 @@ export default function PostModal({
                 {post.user.username}
               </button>
               {post.user.isVerified && (
-                <BadgeCheck size={14} className="text-blue-500 fill-blue-500 stroke-base" />
+                <BadgeCheck
+                  size={14}
+                  className="text-blue-500 fill-blue-500 stroke-base"
+                />
               )}
+              {!isOwner && currentUserId ? (
+                <button
+                  type="button"
+                  onClick={() => void handleFollowToggle()}
+                  disabled={isFollowSubmitting}
+                  className={`text-[11px] font-semibold transition-colors disabled:opacity-60 text-brand hover:text-brand/80`}
+                >
+                  {isFollowSubmitting
+                    ? "..."
+                    : isFollowingUser
+                      ? "Following"
+                      : "Follow"}
+                </button>
+              ) : null}
             </div>
           </div>
           <button
@@ -504,17 +609,14 @@ export default function PostModal({
           videoRef={videoRef}
         />
 
-        <div className="flex-1 md:flex-none md:w-[380px] lg:w-[420px] flex flex-col md:border-l border-border-soft min-h-0 overflow-hidden bg-surface">
+        <div className="flex-1 md:flex-none md:w-[380px] lg:w-[420px] flex flex-col md:border-l border-border-soft min-h-0 overflow-hidden bg-base">
           {/* Desktop Header - hidden on mobile */}
           <div className="hidden md:flex items-center gap-2.5 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-border-soft flex-shrink-0">
             <Avatar
               user={post.user}
               size="sm"
               ring
-              onClick={() => {
-                onClose();
-                router.push(`/profile/@${post.user.username}`);
-              }}
+              onClick={() => setIsProfilePreviewOpen(true)}
               className="cursor-pointer"
             />
             <div className="flex-1 min-w-0">
@@ -535,7 +637,23 @@ export default function PostModal({
                     className="text-blue-500 fill-blue-500 stroke-base"
                   />
                 )}
-                <span className="text-[12px] text-ink-3">• {post.createdAt}</span>
+                {!isOwner && currentUserId ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleFollowToggle()}
+                    disabled={isFollowSubmitting}
+                    className={`text-[11px] font-semibold transition-colors disabled:opacity-60 text-brand hover:text-brand/80`}
+                  >
+                    {isFollowSubmitting
+                      ? "..."
+                      : isFollowingUser
+                        ? "Following"
+                        : "Follow"}
+                  </button>
+                ) : null}
+                <span className="text-[12px] text-ink-3">
+                  • {post.createdAt}
+                </span>
               </div>
               {post.location && (
                 <p className="text-[11px] text-ink-3 mt-0.5">{post.location}</p>
@@ -610,12 +728,14 @@ export default function PostModal({
                   onClose();
                   router.push(`/profile/@${post.user.username}`);
                 }}
-                className="font-semibold text-ink mr-1.5 hover:opacity-70 transition-opacity"
+                className="font-medium text-ink-2 mr-1.5 hover:opacity-70 transition-opacity"
               >
-                {post.user.username}
+                @{post.user.username}
               </button>
               <span className="whitespace-pre-wrap text-ink">
-                {isCaptionExpanded ? post.caption : captionPreview}
+                {renderCaptionWithLinks(
+                  isCaptionExpanded ? post.caption : captionPreview,
+                )}
               </span>
             </p>
             {isCaptionTruncated ? (
@@ -637,8 +757,101 @@ export default function PostModal({
             ) : null}
           </div>
 
+          {/* Action bar with inline counts */}
+          <div className="flex items-center px-2 py-1.5 border-b border-border-soft flex-shrink-0 bg-base">
+            {/* Like button with count */}
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => void handleLike()}
+                disabled={isLikeSubmitting}
+                className="p-2 transition-transform active:scale-90"
+              >
+                <Heart
+                  size={24}
+                  strokeWidth={1.8}
+                  className={`transition-colors ${liked ? "text-red-500 fill-red-500" : "text-ink"}`}
+                  fill={liked ? "currentColor" : "none"}
+                />
+              </button>
+              {likeCount > 0 && (
+                <span className="text-[13px] font-semibold text-ink -ml-0.5">
+                  {likeCount.toLocaleString()}
+                </span>
+              )}
+            </div>
+
+            {/* Comment button with count */}
+            <div className="flex items-center ml-1">
+              <button
+                type="button"
+                className="p-2 transition-transform active:scale-90"
+              >
+                <MessageCircle
+                  size={22}
+                  strokeWidth={1.8}
+                  className="text-ink"
+                />
+              </button>
+              {commentCount > 0 && (
+                <span className="text-[13px] font-semibold text-ink -ml-0.5">
+                  {commentCount.toLocaleString()}
+                </span>
+              )}
+            </div>
+
+            {/* Share button */}
+            <button
+              type="button"
+              onClick={() => void handleSharePost()}
+              className="p-2 ml-1 transition-transform active:scale-90"
+            >
+              <Send
+                size={20}
+                strokeWidth={1.8}
+                className="text-ink -rotate-12 mt-1"
+              />
+            </button>
+
+            {/* Save button */}
+            <button
+              type="button"
+              onClick={() => void handleSaveToggle()}
+              disabled={isSaveSubmitting}
+              className="ml-auto p-2 transition-transform active:scale-90"
+            >
+              <Bookmark
+                size={24}
+                strokeWidth={1.8}
+                className={`transition-colors ${saved ? "text-ink fill-ink" : "text-ink"}`}
+                fill={saved ? "currentColor" : "none"}
+              />
+            </button>
+          </div>
+
           {/* Comments section */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 space-y-4 [scrollbar-width:none] [-webkit-overflow-scrolling:touch]">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 sm:px-4 space-y-3 bg-base [scrollbar-width:none] [-webkit-overflow-scrolling:touch]">
+            <div className="sticky top-0 z-10 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2.5 bg-surface/90 backdrop-blur-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[13px] font-semibold text-ink">Comments</p>
+                </div>
+                {hasMoreRootComments ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVisibleRootComments(
+                        (prev) => prev + ROOT_COMMENTS_BATCH,
+                      )
+                    }
+                    className="text-[11px] font-semibold text-ink-3 hover:text-ink transition-colors"
+                  >
+                    Load more
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
             {isCommentsLoading && comments.length === 0 ? (
               <div className="space-y-4">
                 {Array.from({ length: 4 }).map((_, index) => (
@@ -663,17 +876,26 @@ export default function PostModal({
               </div>
             ) : comments.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <MessageCircle size={52} className="text-ink-3/30 mb-4" strokeWidth={1} />
-                <p className="text-[16px] font-semibold text-ink">No comments yet</p>
-                <p className="text-[14px] text-ink-3 mt-1">Start the conversation</p>
+                <MessageCircle
+                  size={52}
+                  className="text-ink-3/30 mb-4"
+                  strokeWidth={1}
+                />
+                <p className="text-[16px] font-semibold text-ink">
+                  No comments yet
+                </p>
+                <p className="text-[14px] text-ink-3 mt-1">
+                  Start the thread and be the first to comment
+                </p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {comments.map((cmt) => (
+              <div className="space-y-3">
+                {visibleComments.map((cmt) => (
                   <CommentItem
                     key={cmt.id}
                     comment={cmt}
                     postId={post.id}
+                    postAuthorId={post.user.id}
                     depth={0}
                     parentId={null}
                     currentUser={currentUser ?? undefined}
@@ -695,71 +917,28 @@ export default function PostModal({
                     }}
                   />
                 ))}
+
+                {hasMoreRootComments ? (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setVisibleRootComments(
+                          (prev) => prev + ROOT_COMMENTS_BATCH,
+                        )
+                      }
+                      className="w-full rounded-xl border border-border-soft bg-surface-2/60 py-2 text-[12px] font-semibold text-ink-2 hover:text-ink hover:bg-surface-2 transition-colors"
+                    >
+                      View more comments
+                    </button>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
 
-          {/* Action bar with inline counts */}
-          <div className="flex items-center px-2 py-1.5 border-t border-border-soft flex-shrink-0 bg-surface">
-            {/* Like button with count */}
-            <div className="flex items-center">
-              <button
-                type="button"
-                onClick={() => void handleLike()}
-                disabled={isLikeSubmitting}
-                className="p-2 transition-transform active:scale-90"
-              >
-                <Heart
-                  size={24}
-                  strokeWidth={1.8}
-                  className={`transition-colors ${liked ? "text-red-500 fill-red-500" : "text-ink"}`}
-                  fill={liked ? "currentColor" : "none"}
-                />
-              </button>
-              {likeCount > 0 && (
-                <span className="text-[13px] font-semibold text-ink -ml-0.5">{likeCount.toLocaleString()}</span>
-              )}
-            </div>
-            
-            {/* Comment button with count */}
-            <div className="flex items-center ml-1">
-              <button
-                type="button"
-                className="p-2 transition-transform active:scale-90"
-              >
-                <MessageCircle size={24} strokeWidth={1.8} className="text-ink" />
-              </button>
-              {commentCount > 0 && (
-                <span className="text-[13px] font-semibold text-ink -ml-0.5">{commentCount.toLocaleString()}</span>
-              )}
-            </div>
-            
-            {/* Share button */}
-            <button
-              type="button"
-              onClick={() => void handleSharePost()}
-              className="p-2 ml-1 transition-transform active:scale-90"
-            >
-              <Send size={22} strokeWidth={1.8} className="text-ink -rotate-12" />
-            </button>
-            
-            {/* Save button */}
-            <button
-              type="button"
-              onClick={() => void handleSaveToggle()}
-              disabled={isSaveSubmitting}
-              className="ml-auto p-2 transition-transform active:scale-90"
-            >
-              <Bookmark
-                size={24}
-                strokeWidth={1.8}
-                className={`transition-colors ${saved ? "text-ink fill-ink" : "text-ink"}`}
-                fill={saved ? "currentColor" : "none"}
-              />
-            </button>
-          </div>
-
           <CommentInput
+            placeholder="Write a comment to join this thread..."
             onSubmit={async (text) => {
               if (!post) return;
               try {
@@ -778,6 +957,7 @@ export default function PostModal({
                   onPostUpdated?.(post.id, { comments: data.totalComments });
                 }
                 if (data.comment) {
+                  playSendSound();
                   if (data.parentId) {
                     setComments((prev) => {
                       const updated = appendReplyByParentId(
@@ -800,6 +980,7 @@ export default function PostModal({
                       });
                       return updated;
                     });
+                    setVisibleRootComments((prev) => prev + 1);
                   }
                 }
               } catch {}
@@ -839,6 +1020,54 @@ export default function PostModal({
               >
                 {isUpdateSubmitting ? "Saving..." : "Save"}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isProfilePreviewOpen ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsProfilePreviewOpen(false);
+          }}
+        >
+          <div className="relative w-full max-w-[460px] rounded-2xl border border-border-soft bg-surface p-3 sm:p-4 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setIsProfilePreviewOpen(false)}
+              className="absolute right-3 top-3 w-8 h-8 rounded-full flex items-center justify-center text-ink-3 hover:bg-surface-2 hover:text-ink transition-colors"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="pt-6 pb-2">
+              <p className="text-center text-[15px] font-semibold text-ink">
+                {post.user.displayName}
+              </p>
+              <p className="text-center text-[12px] text-ink-3 mt-0.5">
+                @{post.user.username}
+              </p>
+            </div>
+
+            <div className="mx-auto mt-2 w-[240px] h-[240px] sm:w-[320px] sm:h-[320px] rounded-full overflow-hidden relative bg-base border border-border-soft">
+              {post.user.avatarUrl ? (
+                <Image
+                  src={post.user.avatarUrl}
+                  alt={post.user.displayName}
+                  fill
+                  sizes="(max-width: 640px) 240px, 320px"
+                  className="object-cover"
+                />
+              ) : (
+                <div
+                  className={`w-full h-full bg-gradient-to-br ${post.user.avatarGradient} flex items-center justify-center`}
+                >
+                  <span className="text-white font-bold text-6xl sm:text-7xl select-none">
+                    {post.user.avatarInitial}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -884,13 +1113,30 @@ const MemoizedMediaPane = memo(
     onToggleVideo: () => void;
     videoRef: RefObject<HTMLVideoElement | null>;
   }) {
+    const blurBackdropSrc =
+      post.mediaType === "video"
+        ? (post.thumbnailUrl ?? post.mediaUrl)
+        : post.mediaUrl;
+
     return (
       <div className="w-full md:h-full md:flex-1 min-w-0 bg-base flex items-center justify-center relative overflow-hidden flex-shrink-0">
+        <div
+          className="absolute inset-0 pointer-events-none"
+          aria-hidden="true"
+        >
+          <img
+            src={blurBackdropSrc}
+            alt=""
+            className="w-full h-full object-cover scale-110 blur-3xl opacity-65"
+          />
+          <div className="absolute inset-0 bg-black/30" />
+        </div>
+
         {post.mediaType === "image" ? (
           <img
             src={post.mediaUrl}
             alt={post.mediaLabel}
-            className="w-full h-auto max-h-[60vh] md:max-h-full object-contain"
+            className="relative z-10 w-full h-auto max-h-[60vh] md:max-h-full object-contain"
             onLoad={onImageLoaded}
             onError={onImageLoaded}
           />
@@ -898,7 +1144,7 @@ const MemoizedMediaPane = memo(
           <VideoPlayer
             src={post.mediaUrl}
             poster={post.thumbnailUrl}
-            className="w-full h-auto max-h-[60vh] md:max-h-full object-contain"
+            className="relative z-10 w-full h-auto max-h-[60vh] md:max-h-full object-contain"
             autoPlay
             muted
             loop
@@ -910,7 +1156,7 @@ const MemoizedMediaPane = memo(
         )}
 
         {isMediaLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-surface-2/50">
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface-2/50">
             <Loader2 size={28} className="animate-spin text-ink-3" />
           </div>
         )}
