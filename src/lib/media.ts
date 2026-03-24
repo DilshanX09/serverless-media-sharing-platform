@@ -1,10 +1,3 @@
-import {
-  BlobSASPermissions,
-  SASProtocol,
-  StorageSharedKeyCredential,
-  generateBlobSASQueryParameters,
-} from "@azure/storage-blob";
-
 declare global {
   // eslint-disable-next-line no-var
   var signedBlobUrlCache:
@@ -21,6 +14,23 @@ declare global {
 const MEDIA_TYPE_VALUES = ["IMAGE", "VIDEO"] as const;
 
 export type MediaTypeValue = (typeof MEDIA_TYPE_VALUES)[number];
+
+type AzureSasRuntime = {
+  BlobSASPermissions: { parse: (value: string) => unknown };
+  SASProtocol: { Https: unknown };
+  StorageSharedKeyCredential: new (name: string, key: string) => unknown;
+  generateBlobSASQueryParameters: (
+    values: {
+      containerName: string;
+      blobName: string;
+      permissions: unknown;
+      startsOn: Date;
+      expiresOn: Date;
+      protocol: unknown;
+    },
+    credential: unknown,
+  ) => { toString: () => string };
+};
 
 export function isMediaTypeValue(value: string): value is MediaTypeValue {
   return MEDIA_TYPE_VALUES.includes(value as MediaTypeValue);
@@ -43,12 +53,19 @@ export function blobPathToPublicUrl(blobPath: string): string {
 
   const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
   if (!accountName) {
-    throw new Error("Missing AZURE_STORAGE_ACCOUNT_NAME for media URL mapping.");
+    throw new Error(
+      "Missing AZURE_STORAGE_ACCOUNT_NAME for media URL mapping.",
+    );
   }
 
   const baseUrl = `https://${accountName}.blob.core.windows.net/${normalized}`;
   const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
   if (!accountKey) {
+    return baseUrl;
+  }
+
+  // Client bundles cannot use Node-only Azure signing utilities.
+  if (typeof window !== "undefined") {
     return baseUrl;
   }
 
@@ -66,6 +83,14 @@ export function blobPathToPublicUrl(blobPath: string): string {
     return cached.url;
   }
 
+  const nodeRequire = eval("require") as (id: string) => unknown;
+  const {
+    BlobSASPermissions,
+    SASProtocol,
+    StorageSharedKeyCredential,
+    generateBlobSASQueryParameters,
+  } = nodeRequire("@azure/storage-blob") as AzureSasRuntime;
+
   const credential = new StorageSharedKeyCredential(accountName, accountKey);
   const startsOn = new Date(now - 60 * 1000);
   const expiresOn = new Date(now + 60 * 60 * 1000);
@@ -78,13 +103,16 @@ export function blobPathToPublicUrl(blobPath: string): string {
       expiresOn,
       protocol: SASProtocol.Https,
     },
-    credential
+    credential,
   ).toString();
 
   const signedUrl = `${baseUrl}?${sas}`;
   if (!global.signedBlobUrlCache) {
     global.signedBlobUrlCache = new Map();
   }
-  global.signedBlobUrlCache.set(cacheKey, { url: signedUrl, expiresAt: expiresOn.getTime() });
+  global.signedBlobUrlCache.set(cacheKey, {
+    url: signedUrl,
+    expiresAt: expiresOn.getTime(),
+  });
   return signedUrl;
 }

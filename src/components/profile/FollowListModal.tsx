@@ -32,14 +32,20 @@ export default function FollowListModal({
   const { showToast } = useToast();
   const [users, setUsers] = useState<FollowUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [followingStates, setFollowingStates] = useState<Record<string, boolean>>({});
-  const [loadingFollowIds, setLoadingFollowIds] = useState<Set<string>>(new Set());
+  const [followingStates, setFollowingStates] = useState<
+    Record<string, boolean>
+  >({});
+  const [loadingFollowIds, setLoadingFollowIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const loadUsers = useCallback(async () => {
     if (!isOpen) return;
     setIsLoading(true);
     try {
-      const res = await axios.get(`/api/profile/${userId}?list=${type}`, { withCredentials: true });
+      const res = await axios.get(`/api/profile/${userId}?list=${type}`, {
+        withCredentials: true,
+      });
       const data = res.data.users as FollowUser[];
       setUsers(data);
       const states: Record<string, boolean> = {};
@@ -65,13 +71,13 @@ export default function FollowListModal({
       const res = await axios.post(
         "/api/social/follows/toggle",
         { targetUserId },
-        { withCredentials: true }
+        { withCredentials: true },
       );
       setFollowingStates((prev) => ({
         ...prev,
-        [targetUserId]: res.data.following,
+        [targetUserId]: Boolean(res.data.isFollowing),
       }));
-      showToast(res.data.following ? "Followed" : "Unfollowed", "success");
+      showToast(res.data.isFollowing ? "Followed" : "Unfollowed", "success");
     } catch {
       showToast("Failed to update follow", "error");
     } finally {
@@ -109,7 +115,9 @@ export default function FollowListModal({
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border-soft">
-            <h2 className="text-[15px] font-semibold text-ink capitalize">{type}</h2>
+            <h2 className="text-[15px] font-semibold text-ink capitalize">
+              {type}
+            </h2>
             <button
               onClick={onClose}
               className="p-1.5 rounded-full hover:bg-surface-2 text-ink/60 hover:text-ink transition-colors"
@@ -174,7 +182,11 @@ export default function FollowListModal({
                               : "bg-ink text-base hover:opacity-90"
                           } ${isLoadingFollow ? "opacity-50" : ""}`}
                         >
-                          {isLoadingFollow ? "..." : isFollowing ? "Following" : "Follow"}
+                          {isLoadingFollow
+                            ? "..."
+                            : isFollowing
+                              ? "Following"
+                              : "Follow"}
                         </button>
                       )}
                     </div>

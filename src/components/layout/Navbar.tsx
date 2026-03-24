@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -19,6 +19,7 @@ import CreatePostModal from "@/components/post/CreatePostModal";
 import { useTheme } from "next-themes";
 import type { User } from "@/types";
 import axios from "axios";
+import Image from "next/image";
 
 interface NavbarProps {
   onPostPublished?: () => void;
@@ -43,6 +44,7 @@ export default function Navbar({
   const [internalLoading, setInternalLoading] = useState(!currentUserData);
   const createMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const pathname = usePathname();
   const { theme, resolvedTheme, setTheme } = useTheme();
 
   // Use external user if provided, otherwise use internally fetched
@@ -124,20 +126,170 @@ export default function Navbar({
     setIsCreateModalOpen(true);
   };
 
+  const navButtonClass =
+    "w-11 h-11 rounded-full text-ink-2 flex items-center justify-center hover:bg-surface-2 hover:text-ink transition-all";
+  const currentPath = pathname ?? "/";
+  const isHomeActive = currentPath === "/";
+  const isProfileActive =
+    Boolean(navUser?.username) &&
+    currentPath.startsWith(`/profile/@${navUser?.username}`);
+
+  // Keep SSR and first client render identical to avoid hydration mismatch.
+  const activeTheme = isMounted ? (resolvedTheme ?? theme ?? "dark") : "dark";
+
+  const logo =
+    activeTheme === "dark" ? "/assets/dark-logo.png" : "/assets/light-logo.png";
+
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-40 h-[62px] bg-base/95 backdrop-blur-2xl flex items-center px-4 sm:px-6 lg:px-10 gap-3 shadow-sm">
+      {/* Desktop left rail */}
+      <aside className="hidden lg:flex fixed top-0 left-0 z-40 h-screen w-[80px] border-r border-border-soft bg-base/95 backdrop-blur-xl flex-col items-center py-4">
+        <button
+          type="button"
+          className="mt-8 mb-8 text-[30px] font-black tracking-tight text-ink"
+          onClick={() => router.push("/")}
+          style={{ fontFamily: "ap" }}
+        >
+          <Image
+            src={logo}
+            alt="Logo"
+            className="rounded-md"
+            width={35}
+            height={35}
+          />
+        </button>
+
+        <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+            title="Home"
+            className={`${navButtonClass}`}
+          >
+            <House size={20} strokeWidth={2} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsSearchOpen(true);
+              setSearchQuery("");
+            }}
+            title="Search"
+            className={navButtonClass}
+          >
+            <Search size={20} strokeWidth={2} />
+          </button>
+
+          {navUser ? (
+            <div className="relative" ref={createMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsCreateMenuOpen((prev) => !prev)}
+                title="Create"
+                className={`${navButtonClass} hover:opacity-90 hover:bg-ink`}
+              >
+                <Plus
+                  size={20}
+                  strokeWidth={2.4}
+                  color={activeTheme === "dark" ? "#fff" : "#000"}
+                />
+              </button>
+
+              <AnimatePresence>
+                {isCreateMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                    transition={{ duration: 0.16 }}
+                    className="absolute left-full ml-3 top-0 w-[180px] p-1.5 rounded-xl border border-border-soft bg-surface shadow-2xl z-[90]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => openCreateModal("post")}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover:bg-surface-2 transition-colors text-left"
+                    >
+                      <span className="w-7 h-7 rounded-md bg-surface-2 flex items-center justify-center">
+                        <ImagePlus size={15} className="text-ink-2" />
+                      </span>
+                      <span className="text-[14px] font-medium text-ink">
+                        Post
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => openCreateModal("reel")}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover:bg-surface-2 transition-colors text-left"
+                    >
+                      <span className="w-7 h-7 rounded-md bg-surface-2 flex items-center justify-center">
+                        <Video size={15} className="text-ink-2" />
+                      </span>
+                      <span className="text-[14px] font-medium text-ink">
+                        Reel
+                      </span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => {
+              setTheme(activeTheme === "dark" ? "light" : "dark");
+            }}
+            title="Toggle theme"
+            className={navButtonClass}
+          >
+            {!isMounted ? (
+              <span className="w-[20px] h-[20px]" aria-hidden="true" />
+            ) : activeTheme === "dark" ? (
+              <Sun size={20} strokeWidth={1.9} className="text-brand" />
+            ) : (
+              <Moon size={20} strokeWidth={1.9} className="text-ink-3" />
+            )}
+          </button>
+        </div>
+
+        <div className="mt-auto mb-2">
+          {navUser ? (
+            <Link
+              href={`/profile/@${navUser.username}`}
+              prefetch={true}
+              className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${isProfileActive ? "bg-surface-2" : "hover:bg-surface-2"}`}
+            >
+              <Avatar user={navUser} size="sm" />
+            </Link>
+          ) : isAuthLoading ? (
+            <div
+              className="w-11 h-11 rounded-xl bg-surface-2 animate-pulse"
+              aria-hidden="true"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => router.push("/login")}
+              className="px-3 py-2 rounded-xl bg-ink text-base text-[12px] font-semibold hover:opacity-90 transition-opacity"
+            >
+              Log in
+            </button>
+          )}
+        </div>
+      </aside>
+
+      {/* Mobile / tablet top header */}
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-40 h-[62px] flex items-center px-4 sm:px-6 gap-3 bg-base/95 backdrop-blur-2xl">
         {/* Logo */}
         <button
           type="button"
           className="flex items-center gap-1.5 cursor-pointer select-none group flex-shrink-0"
           onClick={() => router.push("/")}
         >
-          <span className="text-[21px] font-black tracking-tighter text-ink group-hover:text-ink-2 transition-colors font-mono">
-            mini
-          </span>
-          <span className="text-[20px] font-black tracking-tighter text-brand group-hover:text-brand/90 transition-colors font-mono">
-            .insta
+          <span className="font-bold text-2xl" style={{ fontFamily: "unset" }}>
+            Shutterly
           </span>
         </button>
 
@@ -171,7 +323,6 @@ export default function Navbar({
               <button
                 type="button"
                 onClick={() => {
-                  const activeTheme = resolvedTheme ?? theme;
                   setTheme(activeTheme === "dark" ? "light" : "dark");
                 }}
                 title="Toggle theme"
@@ -179,7 +330,7 @@ export default function Navbar({
               >
                 {!isMounted ? (
                   <span className="w-[18px] h-[18px]" aria-hidden="true" />
-                ) : (resolvedTheme ?? theme) === "dark" ? (
+                ) : activeTheme === "dark" ? (
                   <Sun size={18} strokeWidth={1.8} className="text-brand" />
                 ) : (
                   <Moon size={18} strokeWidth={1.8} className="text-ink-3" />

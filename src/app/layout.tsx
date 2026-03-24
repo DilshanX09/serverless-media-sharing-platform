@@ -6,7 +6,7 @@ import ChunkErrorHandler from "@/components/system/ChunkErrorHandler";
 import { DM_Sans } from "next/font/google";
 
 export const metadata: Metadata = {
-  title: "Mini Insta",
+  title: "Shutterly",
   description: "A minimal, beautiful photo sharing experience",
 };
 
@@ -32,20 +32,6 @@ export default function RootLayout({
             <ChunkErrorHandler />
             <div className="min-h-screen flex flex-col font-sans antialiased">
               <main className="flex-1">{children}</main>
-              <footer className="border-t border-border-soft px-4 py-4 text-center text-[12px] text-ink-3">
-                <span suppressHydrationWarning>
-                  © {new Date().getFullYear()} Dilshan
-                </span>
-                {" · "}
-                <a
-                  href="https://www.dilshanxo.dev"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-ink-2 hover:text-ink transition-colors"
-                >
-                  www.dilshanxo.dev
-                </a>
-              </footer>
             </div>
           </ToastProvider>
         </ThemeProvider>

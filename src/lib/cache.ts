@@ -1,15 +1,19 @@
-import { createClient, type RedisClientType } from "redis";
+import { createClient } from "redis";
 import { logError } from "@/lib/logger";
+
+type AppRedisClient = ReturnType<typeof createClient>;
 
 declare global {
   // eslint-disable-next-line no-var
-  var redisClient: RedisClientType | undefined;
+  var redisClient: AppRedisClient | undefined;
   // eslint-disable-next-line no-var
   var redisConnectPromise: Promise<void> | undefined;
   // eslint-disable-next-line no-var
   var redisUnavailableUntil: number | undefined;
   // eslint-disable-next-line no-var
-  var memoryCache: Map<string, { value: unknown; expiresAt: number }> | undefined;
+  var memoryCache:
+    | Map<string, { value: unknown; expiresAt: number }>
+    | undefined;
 }
 
 const MEMORY_CACHE_MAX_SIZE = 500;
@@ -49,7 +53,9 @@ function memoryDelete(...keys: string[]): void {
 }
 
 function getRedisUrl(): string | null {
-  return process.env.REDIS_URL ?? process.env.AZURE_REDIS_CONNECTION_STRING ?? null;
+  return (
+    process.env.REDIS_URL ?? process.env.AZURE_REDIS_CONNECTION_STRING ?? null
+  );
 }
 
 function markRedisUnavailable(error: unknown): void {
@@ -59,7 +65,7 @@ function markRedisUnavailable(error: unknown): void {
   global.redisClient = undefined;
 }
 
-function getRedisClient(): RedisClientType | null {
+function getRedisClient(): AppRedisClient | null {
   const url = getRedisUrl();
   if (!url) return null;
   if ((global.redisUnavailableUntil ?? 0) > Date.now()) return null;
@@ -71,13 +77,16 @@ function getRedisClient(): RedisClientType | null {
     markRedisUnavailable(error);
   });
   global.redisClient = client;
-  global.redisConnectPromise = client.connect().catch((error) => {
-    markRedisUnavailable(error);
-  });
+  global.redisConnectPromise = client
+    .connect()
+    .then(() => undefined)
+    .catch((error) => {
+      markRedisUnavailable(error);
+    });
   return client;
 }
 
-async function ensureRedisReady(client: RedisClientType): Promise<boolean> {
+async function ensureRedisReady(client: AppRedisClient): Promise<boolean> {
   if (client.isReady) return true;
   if (!global.redisConnectPromise) return false;
   await Promise.race([
@@ -108,7 +117,11 @@ export async function cacheGetJson<T>(key: string): Promise<T | null> {
   }
 }
 
-export async function cacheSetJson<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+export async function cacheSetJson<T>(
+  key: string,
+  value: T,
+  ttlSeconds: number,
+): Promise<void> {
   // Always set memory cache (instant)
   memorySet(key, value, Math.min(ttlSeconds, 30));
 
@@ -141,6 +154,10 @@ export function memoryCacheGet<T>(key: string): T | null {
   return memoryGet<T>(key);
 }
 
-export function memoryCacheSet<T>(key: string, value: T, ttlSeconds: number): void {
+export function memoryCacheSet<T>(
+  key: string,
+  value: T,
+  ttlSeconds: number,
+): void {
   memorySet(key, value, ttlSeconds);
 }

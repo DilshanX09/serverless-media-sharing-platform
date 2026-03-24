@@ -24,7 +24,7 @@ export default function LoginPage() {
       await axios.post(
         "/api/auth/login",
         { email, password },
-        { withCredentials: true }
+        { withCredentials: true },
       );
       setIsLoading(false);
       showToast("Welcome back!", "success");
@@ -32,7 +32,8 @@ export default function LoginPage() {
     } catch (err: unknown) {
       setIsLoading(false);
       const axiosErr = err as { response?: { data?: { error?: string } } };
-      const msg = axiosErr.response?.data?.error || "Unable to log in. Please try again.";
+      const msg =
+        axiosErr.response?.data?.error || "Unable to log in. Please try again.";
       setError(msg);
       showToast(msg, "error");
     }
@@ -41,21 +42,16 @@ export default function LoginPage() {
   return (
     <div className="min-h-[calc(100dvh-56px)] bg-base flex flex-col items-center justify-center px-5 py-10">
       {/* Brand Header */}
-      <div className="mb-10 w-full max-w-[420px]">
-        <Link href="/" className="inline-flex items-center gap-1.5 cursor-pointer select-none group">
-          <span className="text-[28px] font-black tracking-tighter text-ink group-hover:text-ink-2 transition-colors font-mono">
-            mini
-          </span>
-          <span className="text-[28px] font-black tracking-tighter text-brand group-hover:text-brand/90 transition-colors font-mono">
-            .insta
-          </span>
-        </Link>
+      <div className="mb-5 w-full max-w-[420px]">
+        <span className="text-[27px] font-bold">Shutterly</span>
       </div>
 
       <div className="w-full max-w-[420px]">
         <div className="mb-9">
           <p className="text-[14px] text-ink-3 leading-relaxed">
-            Log in to continue to your feed, reels, and profile updates.
+            Log in to continue to your feed, reels, and profile updates. Enjoy
+            connecting with friends, sharing moments, and discovering inspiring
+            content from around the world.
           </p>
         </div>
 
@@ -98,12 +94,17 @@ export default function LoginPage() {
             {isLoading ? "Logging in..." : "Log in"}
           </button>
 
-          {error ? <p className="text-[13px] text-red-500 font-medium">{error}</p> : null}
+          {error ? (
+            <p className="text-[13px] text-red-500 font-medium">{error}</p>
+          ) : null}
         </form>
 
         <p className="text-left text-[14px] text-ink-3 mt-9">
           Don&apos;t have an account?{" "}
-          <Link href="/register" className="text-ink hover:text-brand font-semibold transition-colors">
+          <Link
+            href="/register"
+            className="text-ink hover:text-brand font-semibold transition-colors"
+          >
             Sign up
           </Link>
         </p>

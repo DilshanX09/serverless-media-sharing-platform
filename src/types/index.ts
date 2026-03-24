@@ -2,6 +2,7 @@ export interface User {
   id: string;
   username: string;
   displayName: string;
+  isFollowing?: boolean;
   avatarInitial: string;
   avatarGradient: string;
   avatarUrl?: string;

@@ -36,7 +36,7 @@ export default function Sidebar({
       await axios.post(
         "/api/social/follows/toggle",
         { targetUserId },
-        { withCredentials: true }
+        { withCredentials: true },
       );
       onFollowedSuggestion?.(targetUserId);
       showToast(`You're now following ${username}`, "success");
@@ -110,17 +110,12 @@ export default function Sidebar({
               prefetch={true}
               className="flex items-center gap-3.5 mb-2 group"
             >
-              <Avatar
-                user={user}
-                size="lg"
-              />
+              <Avatar user={user} size="lg" />
               <div className="flex-1 min-w-0">
-                <p className="text-[18px] font-semibold text-ink leading-tight group-hover:text-brand transition-colors">
+                <p className="text-[16px] font-bold text-ink leading-tight group-hover:text-brand transition-colors">
                   {user.displayName}
                 </p>
-                <p className="text-[15px] text-ink-2 mt-0.5">
-                  @{user.username}
-                </p>
+                <p className="text-[15px] text-ink-2 ">@{user.username}</p>
               </div>
               <span className="text-[13px] font-semibold text-ink-2 group-hover:text-ink transition-colors">
                 Edit
@@ -181,7 +176,9 @@ export default function Sidebar({
                   </div>
                   <button
                     type="button"
-                    onClick={() => void handleFollow(suggested.id, suggested.username)}
+                    onClick={() =>
+                      void handleFollow(suggested.id, suggested.username)
+                    }
                     disabled={isSubmittingFor === suggested.id}
                     className="text-[12px] font-semibold text-brand hover:opacity-80 transition-opacity disabled:opacity-50"
                   >
