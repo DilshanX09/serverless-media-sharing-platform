@@ -1,3 +1,5 @@
+<img width="100" height="100" alt="dark-logo" src="https://github.com/user-attachments/assets/3ca613c5-419a-421e-90ea-4bbf3635ec9a" />
+
 # Shutterly Media Sharing Platform
 
 A full-stack social media application built with Next.js, Prisma, PostgreSQL, and Azure Blob Storage.
