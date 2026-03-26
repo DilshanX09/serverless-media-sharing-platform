@@ -21,11 +21,13 @@ interface UpdateCommentBody {
   content?: unknown;
 }
 
-const LOCAL_COMMENTS_CACHE_TTL = 15_000;
+const LOCAL_COMMENTS_CACHE_TTL = 30_000; // Increased from 15s to 30s
 const localCommentsCache = new Map<
   string,
   { comments: ReturnType<typeof mapCommentNode>[]; cachedAt: number }
 >();
+// Request deduplication for comments
+const pendingCommentRequests = new Map<string, Promise<NextResponse>>();
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const authResult = requireAuth(request);
@@ -205,7 +207,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const rows = await prisma.comment.findMany({
+  // Deduplicate concurrent requests for same post comments
+  if (pendingCommentRequests.has(postId)) {
+    return pendingCommentRequests.get(postId)!;
+  }
+
+  const fetchComments = async () => {
+    const rows = await prisma.comment.findMany({
     where: { postId },
     orderBy: { createdAt: "asc" },
     select: {
@@ -305,7 +313,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     comments: basePayload.comments,
     cachedAt: Date.now(),
   });
+
   return NextResponse.json(payload, { status: 200 });
+  };
+
+  const fetchPromise = fetchComments().finally(() => {
+    pendingCommentRequests.delete(postId);
+  });
+
+  pendingCommentRequests.set(postId, fetchPromise);
+  return fetchPromise;
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {

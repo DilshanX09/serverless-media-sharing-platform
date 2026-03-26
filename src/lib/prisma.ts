@@ -10,8 +10,22 @@ declare const globalThis: {
 
 // Use singleton pattern to reuse connection across hot reloads in development
 const prisma = globalThis.prismaGlobal ?? (() => {
-  const adapter = new PrismaPg({ connectionString });
-  return new PrismaClient({ adapter });
+  const adapter = new PrismaPg({
+    connectionString,
+    // Connection pooling for better performance
+    max: 10, // Max connections in pool
+    min: 2, // Min connections in pool
+    idleTimeoutMillis: 30000, // Close idle connections after 30s
+    connectionTimeoutMillis: 5000, // Fail fast if no connection available
+  });
+  return new PrismaClient({
+    adapter,
+    // Optimize query logging
+    log:
+      process.env.NODE_ENV === "production"
+        ? ["error", "warn"]
+        : ["error", "warn", "query"],
+  });
 })();
 
 if (process.env.NODE_ENV !== "production") {

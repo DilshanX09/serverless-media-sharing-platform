@@ -885,7 +885,7 @@ export default function PostModal({
                   No comments yet
                 </p>
                 <p className="text-[14px] text-ink-3 mt-1">
-                  Start the thread and be the first to comment
+                  Share what's on your mind.
                 </p>
               </div>
             ) : (

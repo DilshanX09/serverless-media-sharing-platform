@@ -41,10 +41,24 @@ interface MediaFile {
 
 const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
 const MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024;
+const MAX_TAGS = 8;
 
 function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function parseTags(raw: string): string[] {
+  return Array.from(
+    new Set(
+      raw
+        .split(/[\s,]+/)
+        .map((tag) => tag.trim().toLowerCase())
+        .filter(Boolean)
+        .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`)),
+    ),
+  ).slice(0, MAX_TAGS);
 }
 
 export default function CreatePostModal({
@@ -61,25 +75,27 @@ export default function CreatePostModal({
   const [captionCount, setCaptionCount] = useState(0);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadLoadedBytes, setUploadLoadedBytes] = useState(0);
+  const [uploadTotalBytes, setUploadTotalBytes] = useState<number | null>(null);
   const [publishPhase, setPublishPhase] = useState<PublishPhase>("preparing");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const uploadPulseTimerRef = useRef<number | null>(null);
   const router = useRouter();
   const { showToast } = useToast();
 
-  const normalizedTagChips = useMemo(
-    () =>
-      tags
-        .split(/\s+/)
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-        .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
-        .slice(0, 8),
-    [tags],
-  );
+  const normalizedTagChips = useMemo(() => parseTags(tags), [tags]);
   const captionRemaining = 2200 - captionCount;
 
+  const clearUploadPulseTimer = useCallback(() => {
+    if (uploadPulseTimerRef.current !== null) {
+      window.clearInterval(uploadPulseTimerRef.current);
+      uploadPulseTimerRef.current = null;
+    }
+  }, []);
+
   const handleClose = useCallback(() => {
+    clearUploadPulseTimer();
     if (media?.url) URL.revokeObjectURL(media.url);
     setMedia(null);
     setCaption("");
@@ -87,10 +103,12 @@ export default function CreatePostModal({
     setStep("select");
     setPublishError(null);
     setUploadProgress(0);
+    setUploadLoadedBytes(0);
+    setUploadTotalBytes(null);
     setPublishPhase("preparing");
     setIsDragging(false);
     onClose();
-  }, [media?.url, onClose]);
+  }, [clearUploadPulseTimer, media?.url, onClose]);
 
   // Close on Escape
   useEffect(() => {
@@ -104,9 +122,10 @@ export default function CreatePostModal({
   // Revoke object URLs on unmount / media change
   useEffect(() => {
     return () => {
+      clearUploadPulseTimer();
       if (media?.url) URL.revokeObjectURL(media.url);
     };
-  }, [media]);
+  }, [clearUploadPulseTimer, media]);
 
   const processFile = useCallback(
     (file: File) => {
@@ -147,6 +166,18 @@ export default function CreatePostModal({
     file: File,
   ): Promise<void> => {
     return new Promise((resolve, reject) => {
+      clearUploadPulseTimer();
+      setUploadTotalBytes(file.size || null);
+      setUploadLoadedBytes(0);
+      setUploadProgress(6);
+
+      uploadPulseTimerRef.current = window.setInterval(() => {
+        setUploadProgress((prev) => {
+          if (prev >= 92) return prev;
+          return prev + 1;
+        });
+      }, 220);
+
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", uploadUrl);
       xhr.setRequestHeader("x-ms-blob-type", "BlockBlob");
@@ -156,18 +187,35 @@ export default function CreatePostModal({
       );
 
       xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return;
-        const percent = Math.min(
-          100,
-          Math.round((event.loaded / event.total) * 100),
-        );
-        setUploadProgress(percent);
+        if (event.lengthComputable && event.total > 0) {
+          setUploadTotalBytes(event.total);
+          setUploadLoadedBytes(event.loaded);
+          const percent = Math.min(
+            99,
+            Math.round((event.loaded / event.total) * 100),
+          );
+          setUploadProgress((prev) => Math.max(prev, percent));
+          return;
+        }
+
+        if (event.loaded > 0) {
+          setUploadLoadedBytes(event.loaded);
+          setUploadProgress((prev) => Math.max(prev, 18));
+        }
       };
 
-      xhr.onerror = () => reject(new Error("Blob upload failed."));
-      xhr.onabort = () => reject(new Error("Upload aborted."));
+      xhr.onerror = () => {
+        clearUploadPulseTimer();
+        reject(new Error("Blob upload failed."));
+      };
+      xhr.onabort = () => {
+        clearUploadPulseTimer();
+        reject(new Error("Upload aborted."));
+      };
       xhr.onload = () => {
+        clearUploadPulseTimer();
         if (xhr.status >= 200 && xhr.status < 300) {
+          setUploadLoadedBytes(file.size);
           setUploadProgress(100);
           resolve();
           return;
@@ -206,15 +254,13 @@ export default function CreatePostModal({
     if (!media) return;
     setPublishError(null);
     setUploadProgress(0);
+    setUploadLoadedBytes(0);
+    setUploadTotalBytes(media.file.size || null);
     setPublishPhase("preparing");
     setStep("publishing");
 
     try {
-      const normalizedTags = tags
-        .split(/\s+/)
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-        .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`));
+      const normalizedTags = parseTags(tags);
       const captionBase = caption.trim();
       const fullCaption = [captionBase, normalizedTags.join(" ")]
         .filter(Boolean)
@@ -282,11 +328,13 @@ export default function CreatePostModal({
   const primaryButtonClass =
     "w-full flex items-center justify-center gap-2 bg-ink hover:opacity-90 text-base text-[15px] font-bold py-3 rounded-xl transition-all";
 
+  const safeUploadProgress = Math.min(100, Math.max(0, uploadProgress));
+
   const publishingPercent =
     publishPhase === "preparing"
-      ? Math.max(uploadProgress, 8)
+      ? Math.max(safeUploadProgress, 8)
       : publishPhase === "uploading"
-        ? Math.max(uploadProgress, 14)
+        ? Math.max(safeUploadProgress, 14)
         : 100;
 
   const phaseTitle =
@@ -303,27 +351,12 @@ export default function CreatePostModal({
         ? `${media?.type === "video" ? "Video" : "Image"} transfer in progress`
         : "Creating the post and refreshing your feed";
 
-  const phaseItems: Array<{
-    key: PublishPhase;
-    label: string;
-    helper: string;
-  }> = [
-    {
-      key: "preparing",
-      label: "Prepare",
-      helper: "Secure upload session",
-    },
-    {
-      key: "uploading",
-      label: "Upload",
-      helper: "Transfer media file",
-    },
-    {
-      key: "creating",
-      label: "Publish",
-      helper: "Create post entry",
-    },
-  ];
+  const uploadTransferLabel =
+    uploadTotalBytes && uploadTotalBytes > 0
+      ? `${formatBytes(uploadLoadedBytes)} / ${formatBytes(uploadTotalBytes)}`
+      : uploadLoadedBytes > 0
+        ? `${formatBytes(uploadLoadedBytes)} uploaded`
+        : "Waiting for transfer data";
 
   const modalMaxWidth =
     step === "details" ? "920px" : step === "preview" ? "620px" : "540px";
@@ -337,6 +370,24 @@ export default function CreatePostModal({
         e.target === e.currentTarget && step !== "publishing" && handleClose()
       }
     >
+      <style>{`
+        @keyframes progressFill {
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
+        }
+        .progress-bar-animated {
+          background: #fff;
+          background-size: 260% 100%;
+          animation: progressFill 1.8s ease-in-out infinite;
+        }
+      `}</style>
       {/* Modal */}
       <div
         className={[
@@ -432,26 +483,11 @@ export default function CreatePostModal({
                 onChange={handleFileInput}
               />
 
-              <p className="text-center text-[12px] text-ink-3 mt-4">
-                Max file size: 100 MB &nbsp;·&nbsp; One file at a time
-              </p>
-
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div className="rounded-xl bg-surface-2/65 px-3.5 py-3">
-                  <p className="text-[12px] font-semibold text-ink">
-                    Image tip
-                  </p>
-                  <p className="text-[11px] text-ink-3 mt-1">
-                    Sharp cover photos usually perform better in feed.
-                  </p>
-                </div>
-                <div className="rounded-xl bg-surface-2/65 px-3.5 py-3">
-                  <p className="text-[12px] font-semibold text-ink">
-                    Video tip
-                  </p>
-                  <p className="text-[11px] text-ink-3 mt-1">
-                    Keep your first seconds engaging to improve watch time.
-                  </p>
+              <div className="mt-4 rounded-xl bg-surface-2 px-3.5 py-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-ink-3">
+                  <span>Max size: 100 MB</span>
+                  <span>One file only</span>
+                  <span>Fast upload starts right away</span>
                 </div>
               </div>
             </div>
@@ -480,7 +516,7 @@ export default function CreatePostModal({
             <StepPills currentStep={1} />
             <div className="p-5">
               {/* Media Preview */}
-              <div className="rounded-2xl overflow-hidden bg-base border border-border-soft mb-4 relative">
+              <div className="rounded-2xl overflow-hidden bg-base mb-4 relative border border-surface-3">
                 {media.type === "image" ? (
                   <div className="relative w-full max-h-[420px] aspect-square">
                     <NextImage
@@ -590,18 +626,15 @@ export default function CreatePostModal({
               style={{ maxHeight: "calc(92vh - 64px)" }}
             >
               {/* Left: Preview thumbnail (desktop) */}
-              <div className="hidden md:flex flex-col w-[320px] flex-shrink-0 bg-base border-r border-border-soft p-5 gap-4">
-                <div className="rounded-2xl overflow-hidden border border-border-soft bg-base">
+              <div className="hidden md:flex flex-col w-[420px] flex-shrink-0 bg-base p-5 gap-5 items-center justify-start">
+                <div className="w-full rounded-3xl overflow-hidden bg-surface-2 aspect-square">
                   {media.type === "image" ? (
-                    <div
-                      className="relative w-full"
-                      style={{ maxHeight: "320px", aspectRatio: "1 / 1" }}
-                    >
+                    <div className="relative w-full h-full">
                       <NextImage
                         src={media.url}
                         alt="Preview"
                         fill
-                        sizes="320px"
+                        sizes="420px"
                         unoptimized
                         className="object-cover"
                       />
@@ -609,8 +642,7 @@ export default function CreatePostModal({
                   ) : (
                     <video
                       src={media.url}
-                      className="w-full"
-                      style={{ maxHeight: "320px" }}
+                      className="w-full h-full object-cover"
                       loop
                       muted
                       autoPlay
@@ -618,19 +650,21 @@ export default function CreatePostModal({
                     />
                   )}
                 </div>
-                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-surface border border-border-soft">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-surface-3">
+                <div className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-surface-2/50">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-surface-3 flex-shrink-0">
                     {media.type === "image" ? (
-                      <ImageIcon size={15} className="text-brand" />
+                      <ImageIcon size={14} className="text-brand" />
                     ) : (
-                      <Video size={15} className="text-brand" />
+                      <Video size={14} className="text-brand" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-ink truncate">
+                    <p className="text-[12px] font-medium text-ink truncate">
                       {media.name}
                     </p>
-                    <p className="text-[11px] text-ink-3">{media.sizeLabel}</p>
+                    <p className="text-[11px] text-ink-3 leading-tight">
+                      {media.sizeLabel}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -638,20 +672,20 @@ export default function CreatePostModal({
               {/* Right: Form */}
               <div className="flex-1 flex flex-col overflow-y-auto">
                 <div className="p-5 space-y-4 flex-1">
-                  <div className="md:hidden rounded-xl border border-border-soft bg-surface-2/60 p-3 mb-1">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-surface-3">
+                  <div className="md:hidden rounded-xl bg-surface-2/40 p-2.5 mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-surface-3 flex-shrink-0">
                         {media.type === "image" ? (
-                          <ImageIcon size={16} className="text-brand" />
+                          <ImageIcon size={14} className="text-brand" />
                         ) : (
-                          <Video size={16} className="text-brand" />
+                          <Video size={14} className="text-brand" />
                         )}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[12px] font-semibold text-ink truncate">
+                      <div className="min-w-0 flex-1 text-[12px]">
+                        <p className="font-medium text-ink truncate">
                           {media.name}
                         </p>
-                        <p className="text-[11px] text-ink-3">
+                        <p className="text-ink-3 text-[11px]">
                           {media.sizeLabel}
                         </p>
                       </div>
@@ -666,8 +700,8 @@ export default function CreatePostModal({
 
                   {/* Caption */}
                   <div>
-                    <label className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3 uppercase tracking-wide mb-2">
-                      <FileText size={13} />
+                    <label className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3 uppercase tracking-wider mb-3">
+                      <FileText size={12} />
                       Caption
                     </label>
                     <textarea
@@ -676,17 +710,26 @@ export default function CreatePostModal({
                         setCaption(e.target.value);
                         setCaptionCount(e.target.value.length);
                       }}
-                      placeholder="Write a caption, share a thought…"
+                      placeholder="Write a message, share your thoughts…"
                       maxLength={2200}
                       rows={5}
-                      className="w-full bg-base border border-border-soft rounded-xl px-4 py-3 text-[14px] text-ink placeholder-ink-3 outline-none focus:border-brand/30 focus:bg-surface resize-none transition-all leading-relaxed"
+                      className="w-full bg-base border border-surface-3 rounded-2xl px-4 py-3 text-[14px] text-ink placeholder-ink-3 outline-none focus:border-brand/50 focus:bg-surface-2/50 resize-none transition-all leading-relaxed"
                     />
-                    <p className="text-right text-[12px] text-ink-3 mt-1">
-                      {captionCount} / 2200
-                    </p>
-                    <div className="mt-1.5 h-1.5 w-full rounded-full bg-surface-3 overflow-hidden">
+                    <div className="mt-2 flex items-center justify-between text-[11px]">
+                      <span
+                        className={
+                          captionRemaining < 120
+                            ? "text-amber-400"
+                            : "text-ink-3"
+                        }
+                      >
+                        {captionRemaining} left
+                      </span>
+                      <span className="text-ink-3">{captionCount} / 2200</span>
+                    </div>
+                    <div className="mt-2 h-1 w-full rounded-full bg-surface-3 overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all ${captionCount > 1900 ? "bg-amber-400" : "bg-brand/70"}`}
+                        className={`h-full rounded-full transition-all ${captionCount > 1900 ? "bg-amber-400" : "bg-brand/75"}`}
                         style={{
                           width: `${Math.min(100, (captionCount / 2200) * 100)}%`,
                         }}
@@ -696,26 +739,33 @@ export default function CreatePostModal({
 
                   {/* Tags */}
                   <div>
-                    <label className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3 uppercase tracking-wide mb-2">
-                      <Tag size={13} />
+                    <label className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-3 uppercase tracking-wider mb-3">
+                      <Tag size={12} />
                       Tags
                     </label>
                     <input
                       type="text"
                       value={tags}
                       onChange={(e) => setTags(e.target.value)}
-                      placeholder="#photography #travel #nature"
-                      className="w-full bg-base border border-border-soft rounded-xl px-4 py-3 text-[14px] text-ink placeholder-ink-3 outline-none focus:border-brand/30 focus:bg-surface transition-all"
+                      onBlur={() => {
+                        if (!tags.trim()) return;
+                        setTags(normalizedTagChips.join(" "));
+                      }}
+                      placeholder="photo, travel, nature"
+                      className="w-full bg-base border border-surface-3 rounded-2xl px-4 py-3 text-[14px] text-ink placeholder-ink-3 outline-none focus:border-brand/50 focus:bg-surface-2/50 transition-all"
                     />
-                    <p className="text-[12px] text-ink-3 mt-1.5">
-                      Separate tags with spaces
-                    </p>
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-ink-3">
+                      <span>Spaces or commas</span>
+                      <span>
+                        {normalizedTagChips.length} / {MAX_TAGS}
+                      </span>
+                    </div>
                     {normalizedTagChips.length > 0 ? (
-                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <div className="mt-3 flex flex-wrap gap-2">
                         {normalizedTagChips.map((tag) => (
                           <span
                             key={tag}
-                            className="px-2 py-1 rounded-full text-[11px] font-medium bg-brand/10 text-brand"
+                            className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-brand/12 text-brand"
                           >
                             {tag}
                           </span>
@@ -723,45 +773,17 @@ export default function CreatePostModal({
                       </div>
                     ) : null}
                   </div>
-
-                  <div className="rounded-xl bg-surface-2/60 px-3.5 py-3">
-                    <p className="text-[12px] font-semibold text-ink">
-                      Post summary
-                    </p>
-                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-ink-3">
-                      <span>Media type</span>
-                      <span className="text-ink">
-                        {media.type === "video" ? "Video" : "Image"}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-[11px] text-ink-3">
-                      <span>Caption left</span>
-                      <span
-                        className={
-                          captionRemaining < 100 ? "text-amber-400" : "text-ink"
-                        }
-                      >
-                        {captionRemaining}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-[11px] text-ink-3">
-                      <span>Tags</span>
-                      <span className="text-ink">
-                        {normalizedTagChips.length}
-                      </span>
-                    </div>
-                  </div>
                 </div>
 
                 {/* Publish button */}
-                <div className="p-5 pt-0 border-t border-border-soft mt-2">
+                <div className="p-5 mt-auto">
                   <button
                     type="button"
                     onClick={handlePublish}
                     className={primaryButtonClass}
                   >
                     {initialType === "reel" ? "Share reel" : "Share post"}
-                    <ArrowRight size={18} strokeWidth={2.5} />
+                    <ArrowRight size={16} strokeWidth={2} />
                   </button>
                 </div>
               </div>
@@ -771,13 +793,13 @@ export default function CreatePostModal({
 
         {/* ───── STEP: PUBLISHING ───── */}
         {step === "publishing" && (
-          <div className="py-12 px-6 sm:px-8">
-            <div className="relative overflow-hidden rounded-xl p-3 sm:p-7">
+          <div className="py-8 px-4 sm:px-7">
+            <div className="relative overflow-hidden rounded-xl p-4 sm:p-6">
               <div className="absolute -top-24 -right-20 w-56 h-56 rounded-full bg-brand/10 blur-3xl" />
               <div className="absolute -bottom-24 -left-16 w-44 h-44 rounded-full bg-brand/15 blur-3xl" />
 
               <div className="relative">
-                <div className="flex items-center gap-4 mb-10">
+                <div className="flex items-center gap-4 mb-4">
                   <div className="w-14 h-14 flex items-center justify-center">
                     {publishPhase === "creating" ? (
                       <Upload size={24} className="text-brand" />
@@ -787,7 +809,7 @@ export default function CreatePostModal({
                   </div>
                   <div className="min-w-0">
                     <p className="text-[18px] font-bold text-ink">
-                      Uploading your post
+                      Publishing your post
                     </p>
                     <p className="text-[13px] text-ink-3">
                       {phaseTitle} • {publishingPercent}%
@@ -795,64 +817,25 @@ export default function CreatePostModal({
                   </div>
                 </div>
 
-                <p className="text-[13px] text-ink-3 mb-2">
-                  {phaseDescription}
-                </p>
+                <div className="mb-2.5 rounded-xl bg-surface-2/70 py-2.5 text-[12px] text-ink-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span>{phaseDescription}</span>
+                    <span className="text-ink">{uploadTransferLabel}</span>
+                  </div>
+                </div>
 
                 <div className="w-full h-2.5 bg-surface-3 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-brand/70 via-brand to-brand rounded-full transition-all duration-300"
+                    className="h-full progress-bar-animated rounded-full transition-all duration-200"
                     style={{ width: `${publishingPercent}%` }}
                   />
                 </div>
 
-                <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-ink-3">
-                  <span>{media?.name ?? "media"}</span>
-                  <span>{media?.sizeLabel ?? ""}</span>
-                </div>
-
-                <div className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {phaseItems.map((item) => {
-                    const isActive = item.key === publishPhase;
-                    const isCompleted =
-                      (item.key === "preparing" &&
-                        (publishPhase === "uploading" ||
-                          publishPhase === "creating")) ||
-                      (item.key === "uploading" && publishPhase === "creating");
-
-                    return (
-                      <div
-                        key={item.key}
-                        className={[
-                          "rounded-xl border border-[#292929] px-3 py-3 transition-colors",
-                          isActive
-                            ? "bg-brand/10"
-                            : isCompleted
-                              ? "bg-emerald-500/12"
-                              : "bg-surface-2/70",
-                        ].join(" ")}
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <span
-                            className={[
-                              "w-2 h-2 rounded-full",
-                              isActive
-                                ? "bg-brand"
-                                : isCompleted
-                                  ? "bg-emerald-400"
-                                  : "bg-ink-3/45",
-                            ].join(" ")}
-                          />
-                          <p className="text-[12px] font-semibold text-ink">
-                            {item.label}
-                          </p>
-                        </div>
-                        <p className="text-[11px] text-ink-3 leading-snug">
-                          {item.helper}
-                        </p>
-                      </div>
-                    );
-                  })}
+                <div className="mt-4 rounded-xl bg-surface-2/55 py-2 text-[11px] text-ink-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Keep this window open until publish completes</span>
+                    <span className="text-ink">{publishingPercent}%</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -862,7 +845,7 @@ export default function CreatePostModal({
         {/* ───── STEP: DONE ───── */}
         {step === "done" && (
           <div className="px-6 py-9 sm:px-8 sm:py-10">
-            <div className="rounded-3xl bg-gradient-to-br from-surface-2/70 to-surface-3/35 p-8 sm:p-9 text-center shadow-lg">
+            <div className="rounded-3xl bg-gradient-to-br from-surface-2/70 to-surface-3/35 p-8 sm:p-9 text-center">
               <div className="mx-auto mb-5 w-20 h-20 rounded-full bg-brand/12 flex items-center justify-center">
                 <CheckCircle
                   size={40}
@@ -884,7 +867,7 @@ export default function CreatePostModal({
                   handleClose();
                   router.refresh();
                 }}
-                className="mt-6 px-8 py-2.5 bg-ink hover:opacity-90 text-base text-[14px] font-bold rounded-xl transition-all"
+                className="mt-6 px-8 py-2.5 bg-ink hover:opacity-90 text-base text-[14px] font-bold rounded-full transition-all"
               >
                 Done
               </button>

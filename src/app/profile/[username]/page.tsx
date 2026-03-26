@@ -17,6 +17,7 @@ import {
   LogOut,
   Play,
   X,
+  Loader2,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import EditProfileModal from "@/components/profile/EditProfileModal";
@@ -93,6 +94,10 @@ export default function ProfilePage() {
   const [isAvatarPreviewOpen, setIsAvatarPreviewOpen] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
   const [isFollowSubmitting, setIsFollowSubmitting] = useState(false);
+  const [postsPage, setPostsPage] = useState(1);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const postsPerPage = 12;
 
   const { theme } = useTheme();
 
@@ -106,35 +111,66 @@ export default function ProfilePage() {
       );
       if (cached && mounted) {
         try {
-          const parsed = JSON.parse(cached) as ProfileResponse;
+          const parsed = JSON.parse(cached) as ProfileResponse & { hasMore?: boolean };
           setProfileData(parsed);
           setEditableUser(parsed.user);
+          setHasMorePosts(parsed.hasMore ?? false);
           setIsLoading(false);
           // Set current user ID from cache
           if (parsed.currentUserId) {
             setCurrentUserId(parsed.currentUserId);
           }
+          return; // Use cached data immediately
         } catch {
           // Invalid cache, continue to fetch
         }
       }
-      // Fetch fresh data in background
+      // Fetch fresh data using lightweight header endpoint first
       try {
-        const response = await axios.get(
-          `/api/profile/${encodeURIComponent(rawUsername)}`,
+        // Load header first (fast)
+        const headerResponse = await axios.get(
+          `/api/profile/${encodeURIComponent(rawUsername)}/header`,
           { withCredentials: true },
         );
-        const data = response.data as ProfileResponse;
-        if (!mounted) return;
-        setProfileData(data);
-        setEditableUser(data.user);
-        // Set current user ID from response
-        if (data.currentUserId) {
-          setCurrentUserId(data.currentUserId);
+        const headerData = headerResponse.data as {
+          user: User;
+          isFollowing: boolean;
+          isOwn: boolean;
+          currentUserId: string;
+        };
+
+        if (mounted) {
+          // Set header data immediately
+          setEditableUser(headerData.user);
+          setCurrentUserId(headerData.currentUserId);
+
+          // Create initial profile data with header
+          const initialProfileData: ProfileResponse = {
+            user: headerData.user,
+            posts: [],
+            isOwn: headerData.isOwn,
+            isFollowing: headerData.isFollowing,
+            currentUserId: headerData.currentUserId,
+          };
+          setProfileData(initialProfileData);
         }
+
+        // Then load posts in background
+        const postsResponse = await axios.get(
+          `/api/profile/${encodeURIComponent(rawUsername)}?page=1&limit=${postsPerPage}`,
+          { withCredentials: true },
+        );
+        const postsData = postsResponse.data as ProfileResponse & { hasMore?: boolean };
+
+        if (!mounted) return;
+
+        // Merge with full posts data
+        setProfileData(postsData);
+        setHasMorePosts(postsData.hasMore ?? false);
+
         window.sessionStorage.setItem(
           profileCacheKey(rawUsername),
-          JSON.stringify(data),
+          JSON.stringify(postsData),
         );
       } catch (error: unknown) {
         const axiosError = error as { response?: { status?: number } };
@@ -155,6 +191,34 @@ export default function ProfilePage() {
       mounted = false;
     };
   }, [rawUsername, router]);
+
+  // Load more posts function
+  const loadMorePosts = async () => {
+    if (isLoadingMore || !hasMorePosts) return;
+    setIsLoadingMore(true);
+    try {
+      const nextPage = postsPage + 1;
+      const response = await axios.get(
+        `/api/profile/${encodeURIComponent(rawUsername)}?page=${nextPage}&limit=${postsPerPage}`,
+        { withCredentials: true },
+      );
+      const data = response.data as ProfileResponse & { hasMore?: boolean };
+      setPostsPage(nextPage);
+      setHasMorePosts(data.hasMore ?? false);
+      setProfileData((prev) =>
+        prev
+          ? {
+              ...prev,
+              posts: [...prev.posts, ...(data.posts ?? [])],
+            }
+          : prev,
+      );
+    } catch (error) {
+      console.error("Failed to load more posts:", error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     if (activeTab !== "saved" || !profileData?.isOwn || profileData.savedPosts)
@@ -369,14 +433,39 @@ export default function ProfilePage() {
     }
   };
 
-  if (isLoading || !editableUser || !profileData) {
+  if (isLoading || !editableUser) {
     return (
       <>
         <Navbar />
         <main className="pt-[62px] min-h-screen bg-base">
           <div className="max-w-[900px] mx-auto px-4 sm:px-6 py-8">
-            <div className="h-10 w-28 bg-surface-2 rounded mb-6 animate-pulse" />
-            <div className="h-52 rounded-2xl bg-surface-2 animate-pulse" />
+            {/* Back button skeleton */}
+            <div className="h-10 w-20 bg-surface-2 rounded-xl mb-6 animate-pulse" />
+            {/* Profile header skeleton */}
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-8">
+              {/* Avatar skeleton */}
+              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-surface-2 animate-pulse" />
+              {/* Info skeleton */}
+              <div className="flex-1 min-w-0">
+                <div className="h-7 w-48 bg-surface-2 rounded mb-4 animate-pulse" />
+                <div className="flex gap-6 mb-4">
+                  <div className="h-5 w-16 bg-surface-2 rounded animate-pulse" />
+                  <div className="h-5 w-20 bg-surface-2 rounded animate-pulse" />
+                  <div className="h-5 w-20 bg-surface-2 rounded animate-pulse" />
+                </div>
+                <div className="h-4 w-64 bg-surface-2 rounded animate-pulse" />
+                <div className="h-4 w-48 bg-surface-2 rounded mt-2 animate-pulse" />
+              </div>
+            </div>
+            {/* Posts grid skeleton */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="aspect-square bg-surface-2 rounded-xl animate-pulse"
+                />
+              ))}
+            </div>
           </div>
         </main>
       </>
@@ -601,62 +690,83 @@ export default function ProfilePage() {
           {activeTab === "posts" && (
             <>
               {posts.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
-                  {posts.map((post) => (
-                    <div
-                      key={post.id}
-                      className="aspect-square bg-surface-2 rounded-xl overflow-hidden relative cursor-pointer group transition-colors"
-                      onClick={() => setActivePost(post)}
-                    >
-                      {post.mediaType === "image" && post.mediaUrl ? (
-                        <Image
-                          src={post.mediaUrl}
-                          alt={post.mediaLabel}
-                          fill
-                          sizes="(max-width: 640px) 50vw, 280px"
-                          className="object-cover group-hover:scale-110 transition-transform duration-300"
-                        />
-                      ) : post.mediaUrl ? (
-                        <>
-                          <video
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
+                    {posts.map((post, index) => (
+                      <div
+                        key={post.id}
+                        className="aspect-square bg-surface-2 rounded-xl overflow-hidden relative cursor-pointer group transition-colors"
+                        onClick={() => setActivePost(post)}
+                      >
+                        {post.mediaType === "image" && post.mediaUrl ? (
+                          <Image
                             src={post.mediaUrl}
-                            poster={post.thumbnailUrl}
-                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                            muted
-                            loop
-                            playsInline
-                            preload="auto"
-                            autoPlay
+                            alt={post.mediaLabel}
+                            fill
+                            sizes="(max-width: 640px) 50vw, 280px"
+                            className="object-cover group-hover:scale-110 transition-transform duration-300"
                           />
-                          {/* Video indicator */}
-                          <div className="absolute top-2 right-2 bg-black/50 rounded-full p-1.5 pointer-events-none">
-                            <Play
-                              size={12}
-                              fill="white"
-                              className="text-white"
+                        ) : post.mediaUrl ? (
+                          <>
+                            <video
+                              src={post.mediaUrl}
+                              poster={post.thumbnailUrl}
+                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                              muted
+                              loop
+                              playsInline
+                              preload="auto"
+                              autoPlay
                             />
+                            {/* Video indicator */}
+                            <div className="absolute top-2 right-2 bg-black/50 rounded-full p-1.5 pointer-events-none">
+                              <Play
+                                size={12}
+                                fill="white"
+                                className="text-white"
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <div className="w-full h-full bg-surface-3 flex items-center justify-center">
+                            <ImageIcon size={24} className="text-ink/30" />
                           </div>
-                        </>
-                      ) : (
-                        <div className="w-full h-full bg-surface-3 flex items-center justify-center">
-                          <ImageIcon size={24} className="text-ink/30" />
-                        </div>
-                      )}
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors rounded-xl flex items-center justify-center gap-4 opacity-0 group-hover:opacity-100">
-                        <div className="flex items-center gap-1.5 text-white text-[14px] font-bold">
-                          <Heart size={18} fill="white" />
-                          {post.likes >= 1000
-                            ? (post.likes / 1000).toFixed(1) + "k"
-                            : post.likes}
-                        </div>
-                        <div className="flex items-center gap-1.5 text-white text-[14px] font-bold">
-                          <MessageCircle size={18} fill="white" />
-                          {post.comments}
+                        )}
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors rounded-xl flex items-center justify-center gap-4 opacity-0 group-hover:opacity-100">
+                          <div className="flex items-center gap-1.5 text-white text-[14px] font-bold">
+                            <Heart size={18} fill="white" />
+                            {post.likes >= 1000
+                              ? (post.likes / 1000).toFixed(1) + "k"
+                              : post.likes}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-white text-[14px] font-bold">
+                            <MessageCircle size={18} fill="white" />
+                            {post.comments}
+                          </div>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                  {hasMorePosts && (
+                    <div className="flex justify-center mt-8">
+                      <button
+                        type="button"
+                        onClick={loadMorePosts}
+                        disabled={isLoadingMore}
+                        className="px-6 py-2.5 bg-surface-2 hover:bg-surface-3 text-ink font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isLoadingMore ? (
+                          <span className="flex items-center gap-2">
+                            <Loader2 size={16} className="animate-spin" />
+                            Loading...
+                          </span>
+                        ) : (
+                          "Load More"
+                        )}
+                      </button>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-center">
                   <div className="w-16 h-16 rounded-2xl bg-surface-2 flex items-center justify-center mb-4">

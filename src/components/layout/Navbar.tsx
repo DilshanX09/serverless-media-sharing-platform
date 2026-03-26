@@ -268,15 +268,7 @@ export default function Navbar({
               className="w-11 h-11 rounded-xl bg-surface-2 animate-pulse"
               aria-hidden="true"
             />
-          ) : (
-            <button
-              type="button"
-              onClick={() => router.push("/login")}
-              className="px-3 py-2 rounded-xl bg-ink text-base text-[12px] font-semibold hover:opacity-90 transition-opacity"
-            >
-              Log in
-            </button>
-          )}
+          ) : null}
         </div>
       </aside>
 
@@ -405,14 +397,14 @@ export default function Navbar({
                 aria-hidden="true"
               />
             ) : (
-              <button
-                type="button"
-                onClick={() => router.push("/login")}
-                className="px-3.5 py-2 rounded-full bg-ink text-base text-[13px] font-semibold hover:opacity-90 transition-opacity"
-              >
-                Log in
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => router.push("/login")}
+              className="px-4 py-2 rounded-full bg-ink text-base text-[10px] font-semibold hover:opacity-90 transition-opacity"
+            >
+              Log in
+             </button>
+           )}
           </div>
         </div>
       </header>
