@@ -87,7 +87,7 @@ export default function Sidebar({
       ) : isGuest ? (
         <div className="p-4 rounded-2xl border border-border-soft bg-surface">
           <p className="text-[15px] font-semibold text-ink">
-            Unlock full mini.insta
+            Unlock full Shutterly
           </p>
           <p className="text-[13px] text-ink-3 mt-1">
             Logged-in users can view stories, suggestions, profile tools, and

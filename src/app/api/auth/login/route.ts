@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { setAuthCookie, signAuthToken, verifyPassword } from "@/lib/auth";
+import { withCacheHeaders, cacheHeaders } from "@/lib/cacheHeaders";
 
 interface LoginBody {
   email?: unknown;
@@ -66,6 +67,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     },
     { status: 200 }
   );
+
+  // Never cache auth responses
+  withCacheHeaders(response, cacheHeaders.auth);
 
   return setAuthCookie(response, token);
 }
